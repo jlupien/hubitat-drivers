@@ -1,0 +1,29 @@
+{
+  "packageName": "Rivian Connect",
+  "author": "Jeff Lupien",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.3.0",
+  "dateReleased": "2025-01-11",
+  "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-rivian/master/LICENSE",
+  "documentationLink": "https://github.com/jlupien/hubitat-rivian#readme",
+  "releaseNotes": "Initial release - real-time Rivian vehicle monitoring via WebSocket with 70+ attributes",
+  "apps": [
+    {
+      "id": "c44e86d5-9073-468c-8ed4-89da3a81ff17",
+      "name": "Rivian Connect",
+      "namespace": "hubitat-rivian",
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-rivian/master/apps/rivian-connect.groovy",
+      "required": true,
+      "oauth": false
+    }
+  ],
+  "drivers": [
+    {
+      "id": "70330b15-1ac8-46c6-8997-4c16c2730c04",
+      "name": "Rivian Vehicle",
+      "namespace": "hubitat-rivian",
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-rivian/master/drivers/rivian-vehicle.groovy",
+      "required": true
+    }
+  ]
+}

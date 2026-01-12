@@ -1,0 +1,13 @@
+{
+  "author": "Jeff Lupien",
+  "gitHubUrl": "https://github.com/jlupien",
+  "packages": [
+    {
+      "name": "Rivian Connect",
+      "category": "Integrations",
+      "tags": ["Cars", "EV", "Presence", "Transportation"],
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-rivian/master/packageManifest.json",
+      "description": "Real-time Rivian R1S/R1T vehicle integration with 70+ attributes via WebSocket"
+    }
+  ]
+}
