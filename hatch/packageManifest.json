@@ -1,0 +1,29 @@
+{
+  "packageName": "Hatch Connect",
+  "author": "Jeff Lupien",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.3.0",
+  "dateReleased": "2026-01-12",
+  "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
+  "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/hatch#readme",
+  "releaseNotes": "Initial release - Hatch Rest+ control with light, sound, and favorites",
+  "apps": [
+    {
+      "id": "8f3a2b1c-5d4e-6f7a-8b9c-0d1e2f3a4b5c",
+      "name": "Hatch Connect",
+      "namespace": "jlupien",
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/hatch/apps/hatch-connect.groovy",
+      "required": true,
+      "oauth": false
+    }
+  ],
+  "drivers": [
+    {
+      "id": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      "name": "Hatch Rest+",
+      "namespace": "jlupien",
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/hatch/drivers/hatch-rest-plus.groovy",
+      "required": true
+    }
+  ]
+}
