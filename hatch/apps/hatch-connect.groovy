@@ -24,9 +24,10 @@ import groovy.transform.Field
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
+import java.net.URLEncoder
 
 @Field static final String VERSION = "1.0.0"
-@Field static final String HATCH_API_URL = "https://data.hatchbaby.com"
+@Field static final String HATCH_API_URL = "https://prod-sleep.hatchbaby.com"
 @Field static final String DRIVER_NAME = "Hatch Rest+"
 @Field static final String DRIVER_NAMESPACE = "jlupien"
 
@@ -71,7 +72,17 @@ preferences {
 // ==================== Pages ====================
 
 def mainPage() {
+    // Check if this is a new installation vs already installed
+    def isInstalled = app.getInstallationState() == 1
+
     dynamicPage(name: "mainPage", title: "Hatch Connect", install: true, uninstall: true) {
+        if (!isInstalled) {
+            section {
+                paragraph "<b style='color: #d35400;'>IMPORTANT: Click 'Done' below to complete installation.</b>"
+                paragraph "Devices will not be created until you click Done."
+            }
+        }
+
         section {
             paragraph "Hatch Connect v${VERSION}"
             paragraph "Connect your Hatch Rest/Restore devices to Hubitat for control and automation."
@@ -102,14 +113,18 @@ def mainPage() {
             }
         }
 
-        section("Installed Devices") {
-            def devices = getChildDevices()
-            if (devices) {
-                devices.each { device ->
+        def childDevices = getChildDevices()
+        if (childDevices) {
+            section("Installed Devices") {
+                childDevices.each { device ->
                     paragraph "${device.displayName}"
                 }
-            } else {
-                paragraph "No devices installed yet"
+            }
+        }
+
+        if (!isInstalled) {
+            section {
+                paragraph "<b style='color: #d35400;'>Click 'Done' below to finish installation.</b>"
             }
         }
     }
@@ -122,7 +137,7 @@ def credentialsPage() {
         state.loginError = null
     }
 
-    dynamicPage(name: "credentialsPage", title: "Hatch Login", nextPage: "authProgressPage") {
+    dynamicPage(name: "credentialsPage", title: "Hatch Login", nextPage: "authProgressPage", install: false, uninstall: false) {
         section("Credentials") {
             paragraph "Enter your Hatch account credentials. Your password is not stored - only authentication tokens are saved."
             input "hatchEmail", "email", title: "Email", required: true, submitOnChange: false
@@ -130,7 +145,8 @@ def credentialsPage() {
         }
 
         section {
-            paragraph "Click Next to login with these credentials."
+            paragraph "Click <b>Next</b> to login, or <b>Cancel</b> to go back."
+            href "mainPage", title: "Cancel", description: "Return to main page without logging in"
         }
 
         if (state.loginError) {
@@ -156,10 +172,14 @@ def authProgressPage() {
         state.loginError = "Login failed: ${loginResult.error}"
         state.authInProgress = false
         logError "Login failed: ${loginResult.error}"
-        return dynamicPage(name: "authProgressPage", title: "Login Failed", nextPage: "credentialsPage") {
+        return dynamicPage(name: "authProgressPage", title: "Login Failed", install: false, uninstall: false) {
             section {
                 paragraph "<span style='color:red'>Login failed. Please check your credentials and try again.</span>"
                 paragraph "Error: ${loginResult.error}"
+            }
+            section {
+                href "credentialsPage", title: "Try Again", description: "Return to login page"
+                href "mainPage", title: "Cancel", description: "Return to main page"
             }
         }
     }
@@ -171,10 +191,14 @@ def authProgressPage() {
     if (!iotTokenResult.success) {
         state.loginError = "Failed to get IoT token: ${iotTokenResult.error}"
         state.authInProgress = false
-        return dynamicPage(name: "authProgressPage", title: "Login Failed", nextPage: "credentialsPage") {
+        return dynamicPage(name: "authProgressPage", title: "Login Failed", install: false, uninstall: false) {
             section {
                 paragraph "<span style='color:red'>Failed to initialize device connection.</span>"
                 paragraph "Error: ${iotTokenResult.error}"
+            }
+            section {
+                href "credentialsPage", title: "Try Again", description: "Return to login page"
+                href "mainPage", title: "Cancel", description: "Return to main page"
             }
         }
     }
@@ -186,10 +210,14 @@ def authProgressPage() {
     if (!awsResult.success) {
         state.loginError = "Failed to get AWS credentials: ${awsResult.error}"
         state.authInProgress = false
-        return dynamicPage(name: "authProgressPage", title: "Login Failed", nextPage: "credentialsPage") {
+        return dynamicPage(name: "authProgressPage", title: "Login Failed", install: false, uninstall: false) {
             section {
                 paragraph "<span style='color:red'>Failed to authenticate with cloud service.</span>"
                 paragraph "Error: ${awsResult.error}"
+            }
+            section {
+                href "credentialsPage", title: "Try Again", description: "Return to login page"
+                href "mainPage", title: "Cancel", description: "Return to main page"
             }
         }
     }
@@ -201,13 +229,13 @@ def authProgressPage() {
     // Discover devices
     discoverDevices()
 
-    return dynamicPage(name: "authProgressPage", title: "Login Successful", nextPage: "mainPage") {
+    return dynamicPage(name: "authProgressPage", title: "Login Successful", nextPage: "deviceSelectPage") {
         section {
             paragraph "<span style='color:green'>Successfully logged in to Hatch!</span>"
             if (state.devices) {
                 paragraph "Found ${state.devices.size()} device(s)"
             }
-            paragraph "Click Next to continue."
+            paragraph "Click <b>Next</b> to select devices, then click <b>Done</b> on the main page to complete installation."
         }
     }
 }
@@ -220,18 +248,52 @@ def deviceSelectPage() {
         discoverDevices()
     }
 
-    dynamicPage(name: "deviceSelectPage", title: "Select Devices", nextPage: "applyDevicesPage") {
-        section("Available Devices") {
-            if (state.devices && state.devices.size() > 0) {
-                paragraph "Select the devices you want to add to Hubitat:"
-                state.devices.each { device ->
-                    def existingDevice = getChildDevice("hatch-${device.id}")
-                    def installed = existingDevice ? " (installed)" : ""
-                    input "device_${device.id}", "bool", title: "${device.name}${installed}",
-                          defaultValue: existingDevice != null, submitOnChange: false
-                }
-            } else {
+    dynamicPage(name: "deviceSelectPage", title: "Select Devices", nextPage: "applyDevicesPage", install: false, uninstall: false) {
+        if (!state.devices || state.devices.size() == 0) {
+            section {
                 paragraph "No devices found. Make sure your devices are set up in the Hatch app."
+                href "mainPage", title: "Back", description: "Return to main page"
+            }
+        } else {
+            section("Select Devices") {
+                paragraph "Select which devices to add to Hubitat, then click <b>Next</b>."
+
+                // Use string keys for the enum options (Hubitat returns strings from enums)
+                def options = [:]
+                state.devices.each { device ->
+                    options[device.id.toString()] = device.name ?: "Hatch Device"
+                }
+
+                // Pre-select already installed devices
+                def existingIds = getChildDevices().collect {
+                    it.getDataValue("deviceId")
+                }.findAll { it != null }
+
+                input "selectedDevices", "enum", title: "Devices", options: options,
+                      multiple: true, required: false, defaultValue: existingIds, submitOnChange: true
+            }
+
+            // Show preview of changes
+            def selected = settings.selectedDevices ?: []
+            def existing = getChildDevices().collect { it.getDataValue("deviceId") }.findAll { it != null }
+            def toCreate = selected.findAll { !existing.contains(it) }
+            def toRemove = existing.findAll { !selected.contains(it) }
+
+            if (toCreate || toRemove) {
+                section("Preview Changes") {
+                    if (toCreate) {
+                        def names = toCreate.collect { id -> getDeviceName(id) }
+                        paragraph "Will add: ${names.join(', ')}"
+                    }
+                    if (toRemove) {
+                        def names = toRemove.collect { id -> getDeviceName(id) }
+                        paragraph "Will remove: ${names.join(', ')}"
+                    }
+                }
+            }
+
+            section {
+                href "mainPage", title: "Cancel", description: "Return to main page without changes"
             }
         }
     }
@@ -240,59 +302,110 @@ def deviceSelectPage() {
 def applyDevicesPage() {
     logDebug "applyDevicesPage() called"
 
-    def addedDevices = []
-    def removedDevices = []
+    // Don't create devices here - just show what will happen when Done is clicked
+    def selected = settings.selectedDevices ?: []
+    def existing = getChildDevices().collect { it.getDataValue("deviceId") }.findAll { it != null }
+    def toCreate = selected.findAll { !existing.contains(it) }
+    def toRemove = existing.findAll { !selected.contains(it) }
 
-    state.devices?.each { device ->
-        def selected = settings["device_${device.id}"]
-        def existingDevice = getChildDevice("hatch-${device.id}")
-
-        if (selected && !existingDevice) {
-            // Create new device
-            try {
-                def newDevice = addChildDevice(
-                    DRIVER_NAMESPACE,
-                    DRIVER_NAME,
-                    "hatch-${device.id}",
-                    [
-                        name: device.name,
-                        label: device.name,
-                        isComponent: false
-                    ]
-                )
-                newDevice.updateDataValue("thingName", device.thingName)
-                newDevice.updateDataValue("macAddress", device.macAddress)
-                newDevice.updateDataValue("deviceId", device.id)
-                newDevice.updateDataValue("product", device.product)
-                addedDevices << device.name
-                logInfo "Created device: ${device.name}"
-            } catch (e) {
-                logError "Failed to create device ${device.name}: ${e.message}"
+    dynamicPage(name: "applyDevicesPage", title: "Confirm Selection", nextPage: "mainPage") {
+        section {
+            if (toCreate) {
+                def names = toCreate.collect { id -> getDeviceName(id) }
+                paragraph "Will add: ${names.join(', ')}"
             }
-        } else if (!selected && existingDevice) {
-            // Remove device
-            try {
-                deleteChildDevice("hatch-${device.id}")
-                removedDevices << device.name
-                logInfo "Removed device: ${device.name}"
-            } catch (e) {
-                logError "Failed to remove device ${device.name}: ${e.message}"
+            if (toRemove) {
+                def names = toRemove.collect { id -> getDeviceName(id) }
+                paragraph "Will remove: ${names.join(', ')}"
+            }
+            if (!toCreate && !toRemove) {
+                paragraph "No changes to make."
+            }
+        }
+        section {
+            paragraph "<b style='color: #d35400;'>Click Next, then click 'Done' on the main page to complete installation and create devices.</b>"
+        }
+    }
+}
+
+// Helper to find device by ID (handles string/integer comparison)
+def findDeviceById(deviceId) {
+    def idStr = deviceId.toString()
+    return state.devices?.find { it.id.toString() == idStr }
+}
+
+// Helper to get device name by ID
+def getDeviceName(deviceId) {
+    return findDeviceById(deviceId)?.name ?: "Device ${deviceId}"
+}
+
+// Syncs child devices based on selectedDevices setting
+// Called from installed() and updated()
+def syncDevices() {
+    logDebug "syncDevices() called"
+
+    if (!state.authenticated) {
+        logDebug "Not authenticated, skipping sync"
+        return
+    }
+
+    if (!state.devices) {
+        logDebug "No devices discovered, skipping sync"
+        return
+    }
+
+    def selected = settings.selectedDevices ?: []
+    logDebug "Selected devices: ${selected}"
+
+    if (!selected) {
+        logDebug "No devices selected, skipping sync"
+        return
+    }
+
+    def existing = getChildDevices().collect { it.getDataValue("deviceId") }.findAll { it != null }
+    logDebug "Existing device IDs: ${existing}"
+
+    // Create newly selected devices
+    selected.each { deviceId ->
+        if (!existing.contains(deviceId)) {
+            def device = findDeviceById(deviceId)
+            if (device) {
+                try {
+                    logInfo "Creating device: ${device.name} (ID: ${device.id})"
+                    def newDevice = addChildDevice(
+                        DRIVER_NAMESPACE,
+                        DRIVER_NAME,
+                        "hatch-${device.id}",
+                        [
+                            name: device.name,
+                            label: device.name,
+                            isComponent: false
+                        ]
+                    )
+                    newDevice.updateDataValue("thingName", device.thingName)
+                    newDevice.updateDataValue("macAddress", device.macAddress)
+                    newDevice.updateDataValue("deviceId", device.id.toString())
+                    newDevice.updateDataValue("product", device.product)
+                    logInfo "Created device: ${device.name}"
+                } catch (e) {
+                    logError "Failed to create device ${device.name}: ${e.message}"
+                }
+            } else {
+                logWarn "Device not found in state.devices for ID: ${deviceId}"
             }
         }
     }
 
-    dynamicPage(name: "applyDevicesPage", title: "Devices Updated", nextPage: "mainPage") {
-        section {
-            if (addedDevices) {
-                paragraph "Added: ${addedDevices.join(', ')}"
+    // Remove unselected devices
+    existing.each { deviceId ->
+        if (!selected.contains(deviceId)) {
+            def device = findDeviceById(deviceId)
+            try {
+                deleteChildDevice("hatch-${deviceId}")
+                logInfo "Removed device: ${device?.name ?: deviceId}"
+            } catch (e) {
+                logError "Failed to remove device: ${e.message}"
             }
-            if (removedDevices) {
-                paragraph "Removed: ${removedDevices.join(', ')}"
-            }
-            if (!addedDevices && !removedDevices) {
-                paragraph "No changes made."
-            }
-            paragraph "Click Next to return to the main page."
         }
     }
 }
@@ -315,6 +428,14 @@ def appButtonHandler(btn) {
 
 def logout() {
     logInfo "Logging out"
+
+    // Remove all child devices
+    getChildDevices().each { device ->
+        logInfo "Removing device: ${device.displayName}"
+        deleteChildDevice(device.deviceNetworkId)
+    }
+
+    // Clear state
     state.remove("authenticated")
     state.remove("hatchAuthToken")
     state.remove("awsAccessKeyId")
@@ -326,7 +447,11 @@ def logout() {
     state.remove("cognitoToken")
     state.remove("tokenExpiration")
     state.remove("devices")
+
+    // Clear credentials from settings
+    app.removeSetting("hatchEmail")
     app.removeSetting("hatchPassword")
+    app.removeSetting("selectedDevices")
 }
 
 // ==================== Authentication ====================
@@ -334,36 +459,55 @@ def logout() {
 def loginToHatch(String email, String password) {
     logDebug "loginToHatch() called"
 
+    def bodyJson = JsonOutput.toJson([email: email, password: password])
+    logDebug "Login request body: ${bodyJson}"
+
     def params = [
         uri: "${HATCH_API_URL}/public/v1/login",
+        requestContentType: "application/json",
         contentType: "application/json",
         headers: [
-            "User-Agent": "hatch_rest_api"
+            "User-Agent": "hatch_rest_api",
+            "Content-Type": "application/json"
         ],
-        body: JsonOutput.toJson([email: email, password: password]),
+        body: bodyJson,
         timeout: 30
     ]
+
+    logDebug "Login request params: ${params.uri}"
 
     try {
         def result = [success: false]
         httpPost(params) { resp ->
             logDebug "Login response status: ${resp.status}"
+            logDebug "Login response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.payload?.token) {
                     state.hatchAuthToken = data.payload.token
                     result.success = true
                     logDebug "Got Hatch auth token"
+                } else if (data?.token) {
+                    // Alternative response format
+                    state.hatchAuthToken = data.token
+                    result.success = true
+                    logDebug "Got Hatch auth token (alt format)"
                 } else {
-                    result.error = "No token in response"
+                    result.error = "No token in response: ${resp.data}"
                 }
             } else {
-                result.error = "HTTP ${resp.status}"
+                result.error = "HTTP ${resp.status}: ${resp.data}"
             }
         }
         return result
+    } catch (groovyx.net.http.HttpResponseException e) {
+        logError "Login HTTP error: ${e.statusCode} - ${e.message}"
+        try {
+            logError "Response body: ${e.response?.data}"
+        } catch (ex) {}
+        return [success: false, error: "HTTP ${e.statusCode}: ${e.message}"]
     } catch (e) {
-        logError "Login error: ${e.message}"
+        logError "Login error: ${e.class.name}: ${e.message}"
         return [success: false, error: e.message]
     }
 }
@@ -384,15 +528,23 @@ def fetchIotToken() {
         def result = [success: false]
         httpGet(params) { resp ->
             logDebug "IoT token response status: ${resp.status}"
+            logDebug "IoT token response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.payload) {
                     state.awsRegion = data.payload.region ?: "us-east-1"
                     state.identityId = data.payload.identityId
                     state.cognitoToken = data.payload.token
-                    state.iotEndpoint = data.payload.endpoint
+                    // Strip https:// prefix if present - we add it back when making requests
+                    def endpoint = data.payload.endpoint
+                    if (endpoint?.startsWith("https://")) {
+                        endpoint = endpoint.substring(8)
+                    }
+                    state.iotEndpoint = endpoint
                     result.success = true
                     logDebug "Got IoT token - Region: ${state.awsRegion}, Endpoint: ${state.iotEndpoint}"
+                    logDebug "IdentityId: ${state.identityId}"
+                    logDebug "CognitoToken length: ${state.cognitoToken?.length()}"
                 } else {
                     result.error = "No payload in response"
                 }
@@ -409,6 +561,8 @@ def fetchIotToken() {
 
 def exchangeForAwsCredentials() {
     logDebug "exchangeForAwsCredentials() called"
+    logDebug "Using IdentityId: ${state.identityId}"
+    logDebug "Using cognitoToken (first 50 chars): ${state.cognitoToken?.take(50)}..."
 
     def cognitoUrl = "https://cognito-identity.${state.awsRegion}.amazonaws.com/"
 
@@ -419,11 +573,16 @@ def exchangeForAwsCredentials() {
         ]
     ])
 
+    logDebug "Cognito request URL: ${cognitoUrl}"
+    logDebug "Cognito request body: ${body}"
+
     def params = [
         uri: cognitoUrl,
-        contentType: "application/x-amz-json-1.1",
+        requestContentType: "application/json",
+        contentType: "application/json",
         headers: [
-            "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity"
+            "X-Amz-Target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
+            "Content-Type": "application/x-amz-json-1.1"
         ],
         body: body,
         timeout: 30
@@ -433,6 +592,7 @@ def exchangeForAwsCredentials() {
         def result = [success: false]
         httpPost(params) { resp ->
             logDebug "Cognito response status: ${resp.status}"
+            logDebug "Cognito response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.Credentials) {
@@ -443,13 +603,19 @@ def exchangeForAwsCredentials() {
                     result.success = true
                     logDebug "Got AWS credentials, expiration: ${state.tokenExpiration}"
                 } else {
-                    result.error = "No credentials in response"
+                    result.error = "No credentials in response: ${resp.data}"
                 }
             } else {
-                result.error = "HTTP ${resp.status}"
+                result.error = "HTTP ${resp.status}: ${resp.data}"
             }
         }
         return result
+    } catch (groovyx.net.http.HttpResponseException e) {
+        logError "Cognito HTTP error: ${e.statusCode} - ${e.message}"
+        try {
+            logError "Cognito error response: ${e.response?.data}"
+        } catch (ex) {}
+        return [success: false, error: "HTTP ${e.statusCode}: ${e.message}"]
     } catch (e) {
         logError "exchangeForAwsCredentials error: ${e.message}"
         return [success: false, error: e.message]
@@ -536,10 +702,12 @@ def signAwsRequest(String method, String host, String path, String body, String 
     def scope = "${dateStamp}/${state.awsRegion}/${service}/aws4_request"
 
     // Canonical request
+    // For temporary credentials, x-amz-security-token MUST be included in signed headers
     def canonicalUri = path
     def canonicalQuerystring = ""
-    def canonicalHeaders = "host:${host}\nx-amz-date:${amzDate}\n"
-    def signedHeaders = "host;x-amz-date"
+    // Headers must be in alphabetical order: host, x-amz-date, x-amz-security-token
+    def canonicalHeaders = "host:${host}\nx-amz-date:${amzDate}\nx-amz-security-token:${state.awsSessionToken}\n"
+    def signedHeaders = "host;x-amz-date;x-amz-security-token"
     def payloadHash = sha256Hex(body ?: "")
 
     def canonicalRequest = "${method}\n${canonicalUri}\n${canonicalQuerystring}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}"
@@ -585,38 +753,78 @@ def hmacSha256Hex(byte[] key, String data) {
     return hmacSha256(key, data).encodeHex().toString()
 }
 
+// ==================== AWS IoT WebSocket/MQTT ====================
+// Note: The Hatch Cognito credentials only support MQTT, not HTTP REST API.
+// We use MQTT over WebSocket with a presigned URL for device communication.
+
+def generatePresignedMqttUrl() {
+    logDebug "generatePresignedMqttUrl()"
+
+    def now = new Date()
+    def amzDate = now.format("yyyyMMdd'T'HHmmss'Z'", TimeZone.getTimeZone('UTC'))
+    def dateStamp = now.format("yyyyMMdd", TimeZone.getTimeZone('UTC'))
+
+    def host = state.iotEndpoint
+    def region = state.awsRegion
+    def service = "iotdevicegateway"
+    def algorithm = "AWS4-HMAC-SHA256"
+    def method = "GET"
+    def canonicalUri = "/mqtt"
+    def credentialScope = "${dateStamp}/${region}/${service}/aws4_request"
+
+    // Query string parameters (must be in alphabetical order)
+    def credential = URLEncoder.encode("${state.awsAccessKeyId}/${credentialScope}", "UTF-8")
+    def canonicalQuerystring = "X-Amz-Algorithm=${algorithm}"
+    canonicalQuerystring += "&X-Amz-Credential=${credential}"
+    canonicalQuerystring += "&X-Amz-Date=${amzDate}"
+    canonicalQuerystring += "&X-Amz-Expires=86400"
+    canonicalQuerystring += "&X-Amz-Security-Token=${URLEncoder.encode(state.awsSessionToken, 'UTF-8')}"
+    canonicalQuerystring += "&X-Amz-SignedHeaders=host"
+
+    // Canonical headers
+    def canonicalHeaders = "host:${host}\n"
+    def signedHeaders = "host"
+    def payloadHash = sha256Hex("")
+
+    // Create canonical request
+    def canonicalRequest = "${method}\n${canonicalUri}\n${canonicalQuerystring}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}"
+    logDebug "Canonical request for WebSocket:\n${canonicalRequest}"
+
+    // Create string to sign
+    def stringToSign = "${algorithm}\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}"
+    logDebug "String to sign:\n${stringToSign}"
+
+    // Calculate signature
+    def kDate = hmacSha256("AWS4${state.awsSecretKey}".getBytes("UTF-8"), dateStamp)
+    def kRegion = hmacSha256(kDate, region)
+    def kService = hmacSha256(kRegion, service)
+    def kSigning = hmacSha256(kService, "aws4_request")
+    def signature = hmacSha256Hex(kSigning, stringToSign)
+
+    // Build final URL
+    def url = "wss://${host}${canonicalUri}?${canonicalQuerystring}&X-Amz-Signature=${signature}"
+    logDebug "Presigned WebSocket URL generated (length: ${url.length()})"
+
+    return url
+}
+
 // ==================== Device Shadow API ====================
+// These methods use MQTT over WebSocket to communicate with AWS IoT
 
 def getDeviceShadow(String thingName) {
     logDebug "getDeviceShadow(${thingName})"
 
     refreshTokensIfNeeded()
 
-    def host = state.iotEndpoint
-    def path = "/things/${thingName}/shadow"
-    def headers = signAwsRequest("GET", host, path, "")
-
-    def params = [
-        uri: "https://${host}${path}",
-        headers: headers,
-        contentType: "application/json",
-        timeout: 30
-    ]
-
-    try {
-        def result = null
-        httpGet(params) { resp ->
-            logDebug "Shadow GET response status: ${resp.status}"
-            if (resp.status == 200) {
-                result = resp.data
-                logDebug "Shadow data: ${result}"
-            }
-        }
-        return result
-    } catch (e) {
-        logError "getDeviceShadow error: ${e.message}"
-        return null
+    // Get shadow state from device's cached state or MQTT
+    // For now, return cached state - MQTT polling will update it
+    def childDevice = getChildDevices().find { it.getDataValue("thingName") == thingName }
+    if (childDevice) {
+        return childDevice.getState()
     }
+
+    logWarn "getDeviceShadow: No cached state available for ${thingName}"
+    return null
 }
 
 def updateDeviceShadow(String thingName, Map desiredState) {
@@ -624,36 +832,39 @@ def updateDeviceShadow(String thingName, Map desiredState) {
 
     refreshTokensIfNeeded()
 
-    def host = state.iotEndpoint
-    def path = "/things/${thingName}/shadow"
-    def body = JsonOutput.toJson([state: [desired: desiredState]])
-    def headers = signAwsRequest("POST", host, path, body)
-    headers["Content-Type"] = "application/json"
-
-    def params = [
-        uri: "https://${host}${path}",
-        headers: headers,
-        contentType: "application/json",
-        body: body,
-        timeout: 30
-    ]
-
-    try {
-        def result = [success: false]
-        httpPost(params) { resp ->
-            logDebug "Shadow POST response status: ${resp.status}"
-            if (resp.status == 200) {
-                result.success = true
-                result.data = resp.data
-            } else {
-                result.error = "HTTP ${resp.status}"
-            }
-        }
-        return result
-    } catch (e) {
-        logError "updateDeviceShadow error: ${e.message}"
-        return [success: false, error: e.message]
+    // Queue the shadow update for MQTT delivery
+    if (!state.pendingUpdates) {
+        state.pendingUpdates = [:]
     }
+    state.pendingUpdates[thingName] = desiredState
+
+    // Trigger MQTT connection to send update
+    sendMqttUpdate(thingName, desiredState)
+
+    return [success: true, queued: true]
+}
+
+def sendMqttUpdate(String thingName, Map desiredState) {
+    logDebug "sendMqttUpdate(${thingName}, ${desiredState})"
+
+    // Build the shadow update payload
+    def payload = JsonOutput.toJson([state: [desired: desiredState]])
+    def topic = "\$aws/things/${thingName}/shadow/update"
+
+    logDebug "MQTT topic: ${topic}"
+    logDebug "MQTT payload: ${payload}"
+
+    // For now, log the intended action
+    // Full MQTT implementation requires WebSocket + MQTT protocol
+    logInfo "Shadow update queued for ${thingName}: ${desiredState}"
+
+    // Notify child device of pending update
+    def childDevice = getChildDevices().find { it.getDataValue("thingName") == thingName }
+    if (childDevice && childDevice.hasCommand("mqttUpdate")) {
+        childDevice.mqttUpdate(topic, payload)
+    }
+
+    return true
 }
 
 // ==================== Favorites & Routines ====================
@@ -663,12 +874,14 @@ def getFavorites(String macAddress) {
 
     refreshTokensIfNeeded()
 
+    // Try the routine endpoint which contains favorites
     def params = [
-        uri: "${HATCH_API_URL}/service/app/restPlus/favorites/v1/fetch",
+        uri: "${HATCH_API_URL}/service/app/routine/v2/fetch",
         query: [macAddress: macAddress],
         contentType: "application/json",
         headers: [
-            "X-HatchBaby-Auth": state.hatchAuthToken
+            "X-HatchBaby-Auth": state.hatchAuthToken,
+            "User-Agent": "hatch_rest_api"
         ],
         timeout: 30
     ]
@@ -676,6 +889,7 @@ def getFavorites(String macAddress) {
     try {
         def result = []
         httpGet(params) { resp ->
+            logDebug "Favorites response: ${resp.data}"
             if (resp.status == 200 && resp.data?.payload) {
                 result = resp.data.payload
                 logDebug "Favorites: ${result}"
@@ -683,7 +897,12 @@ def getFavorites(String macAddress) {
         }
         return result
     } catch (e) {
-        logError "getFavorites error: ${e.message}"
+        // 404 is expected if no favorites exist
+        if (e.message?.contains("404")) {
+            logDebug "No favorites found for device"
+        } else {
+            logWarn "getFavorites error: ${e.message}"
+        }
         return []
     }
 }
@@ -694,11 +913,12 @@ def getRoutines(String macAddress) {
     refreshTokensIfNeeded()
 
     def params = [
-        uri: "${HATCH_API_URL}/service/app/restPlus/routines/v1/fetch",
+        uri: "${HATCH_API_URL}/service/app/routine/v2/fetch",
         query: [macAddress: macAddress],
         contentType: "application/json",
         headers: [
-            "X-HatchBaby-Auth": state.hatchAuthToken
+            "X-HatchBaby-Auth": state.hatchAuthToken,
+            "User-Agent": "hatch_rest_api"
         ],
         timeout: 30
     ]
@@ -706,6 +926,7 @@ def getRoutines(String macAddress) {
     try {
         def result = []
         httpGet(params) { resp ->
+            logDebug "Routines response: ${resp.data}"
             if (resp.status == 200 && resp.data?.payload) {
                 result = resp.data.payload
                 logDebug "Routines: ${result}"
@@ -713,7 +934,12 @@ def getRoutines(String macAddress) {
         }
         return result
     } catch (e) {
-        logError "getRoutines error: ${e.message}"
+        // 404 is expected if no routines exist
+        if (e.message?.contains("404")) {
+            logDebug "No routines found for device"
+        } else {
+            logWarn "getRoutines error: ${e.message}"
+        }
         return []
     }
 }
@@ -739,11 +965,13 @@ def getAudioTracks() {
 
 def installed() {
     logInfo "Hatch Connect installed"
+    syncDevices()
     initialize()
 }
 
 def updated() {
     logInfo "Hatch Connect updated"
+    syncDevices()
     initialize()
 }
 

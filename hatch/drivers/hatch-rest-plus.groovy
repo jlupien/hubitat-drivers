@@ -10,7 +10,7 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Controls Hatch Rest+ devices via AWS IoT Shadow HTTP API.
+ *  Controls Hatch Rest+ devices via AWS IoT MQTT over WebSocket.
  *
  *  Based on research from:
  *  - https://github.com/dahlb/ha_hatch (Apache 2.0 License)
@@ -21,8 +21,20 @@
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
+import hubitat.helper.HexUtils
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.0.1"
+
+// MQTT Protocol Constants
+@Field static final int MQTT_CONNECT = 0x10
+@Field static final int MQTT_CONNACK = 0x20
+@Field static final int MQTT_PUBLISH = 0x30
+@Field static final int MQTT_PUBACK = 0x40
+@Field static final int MQTT_SUBSCRIBE = 0x80
+@Field static final int MQTT_SUBACK = 0x90
+@Field static final int MQTT_PINGREQ = 0xC0
+@Field static final int MQTT_PINGRESP = 0xD0
+@Field static final int MQTT_DISCONNECT = 0xE0
 
 // Audio track mapping for Rest+
 @Field static final Map AUDIO_TRACKS = [
@@ -79,8 +91,9 @@ metadata {
         attribute "audioTrack", "string"
         attribute "audioTrackNumber", "number"
         attribute "playing", "string"           // on, off
-        attribute "connectionStatus", "string"  // online, offline
+        attribute "connectionStatus", "string"  // online, offline, connecting
         attribute "lastUpdate", "string"        // Timestamp of last state update
+        attribute "mqttStatus", "string"        // connected, disconnected, connecting
 
         // Light-specific attributes
         attribute "lightOn", "string"           // on, off (light state separate from overall power)
@@ -92,6 +105,8 @@ metadata {
         command "stopAudio"
         command "lightOn"
         command "lightOff"
+        command "connectMqtt"
+        command "disconnectMqtt"
     }
 
     preferences {
@@ -169,17 +184,27 @@ def poll() {
         return
     }
 
-    def shadow = parent.getDeviceShadow(thingName)
-    if (shadow) {
-        processDeviceState(shadow)
+    // Check if MQTT is connected
+    if (device.currentValue("mqttStatus") == "connected") {
+        // Request shadow state via MQTT
+        requestShadow()
     } else {
-        sendEvent(name: "connectionStatus", value: "offline")
+        // Try to connect MQTT
+        logDebug "MQTT not connected, attempting connection for poll..."
+        connectMqtt()
     }
 }
 
 def refresh() {
     logInfo "Refreshing device state"
-    poll()
+
+    // If MQTT connected, request shadow
+    if (device.currentValue("mqttStatus") == "connected") {
+        requestShadow()
+    } else {
+        // Connect MQTT (which will request shadow after connection)
+        connectMqtt()
+    }
 }
 
 // ==================== State Processing ====================
@@ -464,14 +489,31 @@ def updateShadow(Map desiredState) {
         return
     }
 
-    def result = parent.updateDeviceShadow(thingName, desiredState)
-
-    if (result?.success) {
-        logDebug "Shadow update successful"
-        // Poll to get updated state
-        runIn(2, "poll")
+    // Check if MQTT is connected
+    if (device.currentValue("mqttStatus") == "connected") {
+        // Use MQTT to send shadow update
+        def topic = "\$aws/things/${thingName}/shadow/update"
+        def payload = JsonOutput.toJson([state: [desired: desiredState]])
+        mqttPublish(topic, payload, 1)
+        logDebug "Shadow update sent via MQTT"
     } else {
-        logError "Shadow update failed: ${result?.error}"
+        // Try to connect MQTT first
+        logInfo "MQTT not connected, attempting connection..."
+        if (connectMqtt()) {
+            // Queue the update for after connection
+            state.pendingUpdate = desiredState
+            runIn(3, "sendPendingUpdate")
+        } else {
+            logError "Failed to connect MQTT for shadow update"
+        }
+    }
+}
+
+def sendPendingUpdate() {
+    if (state.pendingUpdate) {
+        def desiredState = state.pendingUpdate
+        state.remove("pendingUpdate")
+        updateShadow(desiredState)
     }
 }
 
@@ -581,4 +623,377 @@ def logWarn(msg) {
 
 def logError(msg) {
     log.error "HatchRest+[${device.displayName}]: ${msg}"
+}
+
+// ==================== WebSocket/MQTT Implementation ====================
+
+def connectMqtt() {
+    logInfo "Connecting to AWS IoT via MQTT over WebSocket"
+    sendEvent(name: "mqttStatus", value: "connecting")
+
+    // Get presigned URL from parent app
+    def wsUrl = parent.generatePresignedMqttUrl()
+    if (!wsUrl) {
+        logError "Failed to generate presigned MQTT URL"
+        sendEvent(name: "mqttStatus", value: "disconnected")
+        return false
+    }
+
+    logDebug "WebSocket URL length: ${wsUrl.length()}"
+
+    state.mqttPacketId = 1
+    state.pendingSubscribes = []
+    state.pendingPublishes = []
+
+    try {
+        interfaces.webSocket.connect(wsUrl, [
+            pingInterval: 30,
+            headers: ["Sec-WebSocket-Protocol": "mqtt"]
+        ])
+        return true
+    } catch (e) {
+        logError "WebSocket connect error: ${e.message}"
+        sendEvent(name: "mqttStatus", value: "disconnected")
+        return false
+    }
+}
+
+def disconnectMqtt() {
+    logInfo "Disconnecting MQTT"
+    try {
+        // Send MQTT DISCONNECT
+        def packet = [(byte)MQTT_DISCONNECT, (byte)0]
+        interfaces.webSocket.sendMessage(new String(packet as byte[]))
+    } catch (e) {
+        logDebug "Error sending disconnect: ${e.message}"
+    }
+
+    try {
+        interfaces.webSocket.close()
+    } catch (e) {
+        logDebug "Error closing WebSocket: ${e.message}"
+    }
+
+    sendEvent(name: "mqttStatus", value: "disconnected")
+}
+
+// WebSocket callbacks
+def webSocketStatus(String status) {
+    logDebug "WebSocket status: ${status}"
+
+    if (status.startsWith("status: open")) {
+        logInfo "WebSocket connected, sending MQTT CONNECT"
+        sendMqttConnect()
+    } else if (status.startsWith("status: closing") || status.startsWith("status: closed")) {
+        logInfo "WebSocket closed"
+        sendEvent(name: "mqttStatus", value: "disconnected")
+        sendEvent(name: "connectionStatus", value: "offline")
+    } else if (status.startsWith("failure:")) {
+        logError "WebSocket failure: ${status}"
+        sendEvent(name: "mqttStatus", value: "disconnected")
+        sendEvent(name: "connectionStatus", value: "offline")
+    }
+}
+
+def parse(String message) {
+    // WebSocket binary messages come as hex strings
+    logDebug "Received message (length ${message.length()})"
+
+    try {
+        def bytes = HexUtils.hexStringToByteArray(message)
+        parseMqttPacket(bytes)
+    } catch (e) {
+        logError "Error parsing message: ${e.message}"
+    }
+}
+
+def parseMqttPacket(byte[] bytes) {
+    if (bytes.length < 2) {
+        logWarn "Packet too short"
+        return
+    }
+
+    def packetType = (bytes[0] & 0xF0) as int
+    logDebug "MQTT packet type: 0x${Integer.toHexString(packetType)}"
+
+    switch (packetType) {
+        case MQTT_CONNACK:
+            handleConnack(bytes)
+            break
+        case MQTT_SUBACK:
+            handleSuback(bytes)
+            break
+        case MQTT_PUBLISH:
+            handlePublish(bytes)
+            break
+        case MQTT_PUBACK:
+            handlePuback(bytes)
+            break
+        case MQTT_PINGRESP:
+            logDebug "Received PINGRESP"
+            break
+        default:
+            logDebug "Unknown packet type: 0x${Integer.toHexString(packetType)}"
+    }
+}
+
+def sendMqttConnect() {
+    logDebug "Sending MQTT CONNECT"
+
+    // Build client ID
+    def clientId = "hubitat-${device.deviceNetworkId}-${System.currentTimeMillis()}"
+
+    // MQTT CONNECT packet
+    // Fixed header: CONNECT (0x10) + remaining length
+    // Variable header: Protocol Name (MQTT), Protocol Level (4), Connect Flags, Keep Alive
+    // Payload: Client ID
+
+    def protocolName = "MQTT"
+    def protocolLevel = 4
+    def connectFlags = 0x02  // Clean session
+    def keepAlive = 300  // 5 minutes
+
+    // Build variable header
+    def varHeader = []
+    // Protocol name
+    varHeader.add((byte)(protocolName.length() >> 8))
+    varHeader.add((byte)(protocolName.length() & 0xFF))
+    protocolName.each { varHeader.add((byte)it) }
+    // Protocol level
+    varHeader.add((byte)protocolLevel)
+    // Connect flags
+    varHeader.add((byte)connectFlags)
+    // Keep alive
+    varHeader.add((byte)(keepAlive >> 8))
+    varHeader.add((byte)(keepAlive & 0xFF))
+
+    // Build payload (client ID)
+    def payload = []
+    def clientIdBytes = clientId.getBytes("UTF-8")
+    payload.add((byte)(clientIdBytes.length >> 8))
+    payload.add((byte)(clientIdBytes.length & 0xFF))
+    clientIdBytes.each { payload.add(it) }
+
+    // Calculate remaining length
+    def remainingLength = varHeader.size() + payload.size()
+
+    // Build packet
+    def packet = []
+    packet.add((byte)MQTT_CONNECT)
+    encodeRemainingLength(packet, remainingLength)
+    packet.addAll(varHeader)
+    packet.addAll(payload)
+
+    sendMqttPacket(packet as byte[])
+}
+
+def handleConnack(byte[] bytes) {
+    logDebug "Received CONNACK"
+
+    if (bytes.length >= 4) {
+        def returnCode = bytes[3] & 0xFF
+        if (returnCode == 0) {
+            logInfo "MQTT connected successfully"
+            sendEvent(name: "mqttStatus", value: "connected")
+            sendEvent(name: "connectionStatus", value: "online")
+
+            // Subscribe to shadow topics
+            subscribeToShadow()
+        } else {
+            logError "MQTT connection refused, code: ${returnCode}"
+            sendEvent(name: "mqttStatus", value: "disconnected")
+        }
+    }
+}
+
+def subscribeToShadow() {
+    def thingName = device.getDataValue("thingName")
+    if (!thingName) {
+        logError "No thingName for subscription"
+        return
+    }
+
+    // Subscribe to shadow update accepted and get accepted topics
+    def topics = [
+        "\$aws/things/${thingName}/shadow/update/accepted",
+        "\$aws/things/${thingName}/shadow/get/accepted",
+        "\$aws/things/${thingName}/shadow/update/delta"
+    ]
+
+    topics.each { topic ->
+        mqttSubscribe(topic, 1)
+    }
+
+    // Request current shadow state
+    runIn(2, "requestShadow")
+}
+
+def mqttSubscribe(String topic, int qos) {
+    logDebug "Subscribing to: ${topic}"
+
+    def packetId = getNextPacketId()
+
+    // Build SUBSCRIBE packet
+    def varHeader = []
+    varHeader.add((byte)(packetId >> 8))
+    varHeader.add((byte)(packetId & 0xFF))
+
+    def payload = []
+    def topicBytes = topic.getBytes("UTF-8")
+    payload.add((byte)(topicBytes.length >> 8))
+    payload.add((byte)(topicBytes.length & 0xFF))
+    topicBytes.each { payload.add(it) }
+    payload.add((byte)qos)
+
+    def remainingLength = varHeader.size() + payload.size()
+
+    def packet = []
+    packet.add((byte)(MQTT_SUBSCRIBE | 0x02))  // QoS 1
+    encodeRemainingLength(packet, remainingLength)
+    packet.addAll(varHeader)
+    packet.addAll(payload)
+
+    sendMqttPacket(packet as byte[])
+}
+
+def handleSuback(byte[] bytes) {
+    logDebug "Received SUBACK"
+    // Subscription confirmed
+}
+
+def requestShadow() {
+    def thingName = device.getDataValue("thingName")
+    if (!thingName) return
+
+    def topic = "\$aws/things/${thingName}/shadow/get"
+    mqttPublish(topic, "", 0)
+}
+
+def mqttPublish(String topic, String payload, int qos) {
+    logDebug "Publishing to ${topic}: ${payload}"
+
+    def topicBytes = topic.getBytes("UTF-8")
+    def payloadBytes = payload.getBytes("UTF-8")
+
+    def varHeader = []
+    varHeader.add((byte)(topicBytes.length >> 8))
+    varHeader.add((byte)(topicBytes.length & 0xFF))
+    topicBytes.each { varHeader.add(it) }
+
+    if (qos > 0) {
+        def packetId = getNextPacketId()
+        varHeader.add((byte)(packetId >> 8))
+        varHeader.add((byte)(packetId & 0xFF))
+    }
+
+    def remainingLength = varHeader.size() + payloadBytes.length
+
+    def packet = []
+    packet.add((byte)(MQTT_PUBLISH | (qos << 1)))
+    encodeRemainingLength(packet, remainingLength)
+    packet.addAll(varHeader)
+    payloadBytes.each { packet.add(it) }
+
+    sendMqttPacket(packet as byte[])
+}
+
+def handlePublish(byte[] bytes) {
+    logDebug "Received PUBLISH"
+
+    // Parse PUBLISH packet
+    def idx = 1
+    def (remainingLength, bytesUsed) = decodeRemainingLength(bytes, idx)
+    idx += bytesUsed
+
+    // Topic length
+    def topicLen = ((bytes[idx] & 0xFF) << 8) | (bytes[idx + 1] & 0xFF)
+    idx += 2
+
+    // Topic
+    def topicBytes = bytes[idx..(idx + topicLen - 1)]
+    def topic = new String(topicBytes as byte[], "UTF-8")
+    idx += topicLen
+
+    // QoS
+    def qos = (bytes[0] & 0x06) >> 1
+    if (qos > 0) {
+        // Skip packet ID
+        idx += 2
+    }
+
+    // Payload
+    def payloadBytes = bytes[idx..-1]
+    def payload = new String(payloadBytes as byte[], "UTF-8")
+
+    logDebug "MQTT message on ${topic}: ${payload}"
+
+    // Process shadow message
+    processShadowMessage(topic, payload)
+}
+
+def handlePuback(byte[] bytes) {
+    logDebug "Received PUBACK"
+}
+
+def processShadowMessage(String topic, String payload) {
+    logDebug "Processing shadow message from ${topic}"
+
+    try {
+        def json = new JsonSlurper().parseText(payload)
+
+        if (topic.endsWith("/shadow/get/accepted") || topic.endsWith("/shadow/update/accepted")) {
+            // Full shadow state
+            if (json.state?.reported) {
+                processDeviceState([state: json.state])
+            }
+        } else if (topic.endsWith("/shadow/update/delta")) {
+            // Delta update
+            if (json.state) {
+                logDebug "Shadow delta: ${json.state}"
+            }
+        }
+    } catch (e) {
+        logError "Error parsing shadow message: ${e.message}"
+    }
+}
+
+def sendMqttPacket(byte[] packet) {
+    try {
+        def hex = HexUtils.byteArrayToHexString(packet)
+        interfaces.webSocket.sendMessage(hex)
+    } catch (e) {
+        logError "Error sending MQTT packet: ${e.message}"
+    }
+}
+
+def encodeRemainingLength(List packet, int length) {
+    do {
+        def encodedByte = length % 128
+        length = length / 128
+        if (length > 0) {
+            encodedByte = encodedByte | 0x80
+        }
+        packet.add((byte)encodedByte)
+    } while (length > 0)
+}
+
+def decodeRemainingLength(byte[] bytes, int startIdx) {
+    def multiplier = 1
+    def value = 0
+    def idx = startIdx
+
+    do {
+        def encodedByte = bytes[idx] & 0xFF
+        value += (encodedByte & 0x7F) * multiplier
+        multiplier *= 128
+        idx++
+    } while ((bytes[idx - 1] & 0x80) != 0 && idx < bytes.length)
+
+    return [value, idx - startIdx]
+}
+
+def getNextPacketId() {
+    def packetId = state.mqttPacketId ?: 1
+    state.mqttPacketId = (packetId % 65535) + 1
+    return packetId
 }
