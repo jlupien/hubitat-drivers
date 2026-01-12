@@ -24,12 +24,12 @@ import groovy.transform.Field
 @Field static final String VERSION = "1.0.0"
 @Field static final String RIVIAN_API_URL = "https://rivian.com/api/gql/gateway/graphql"
 @Field static final String DRIVER_NAME = "Rivian Vehicle"
-@Field static final String DRIVER_NAMESPACE = "hubitat-rivian"
+@Field static final String DRIVER_NAMESPACE = "jlupien"
 
 definition(
     name: "Rivian Connect",
-    namespace: "hubitat-rivian",
-    author: "Community",
+    namespace: "jlupien",
+    author: "Jeff Lupien",
     description: "Connect and monitor your Rivian vehicles",
     category: "Convenience",
     iconUrl: "",

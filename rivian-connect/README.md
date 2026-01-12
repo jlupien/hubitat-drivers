@@ -1,6 +1,6 @@
-# Hubitat Rivian Integration
+# Unofficial Hubitat Rivian Integration
 
-A Hubitat Elevation integration for Rivian electric vehicles (R1S and R1T). Get real-time vehicle data via WebSocket connection for use in dashboards, automations, and Rule Machine.
+An unofficial Hubitat Elevation integration for Rivian electric vehicles (R1S and R1T). Get real-time vehicle data via WebSocket connection for use in dashboards, automations, and Rule Machine.
 
 ## Features
 
@@ -23,7 +23,7 @@ A Hubitat Elevation integration for Rivian electric vehicles (R1S and R1T). Get 
 
 1. Open **Hubitat Package Manager** (HPM)
 2. Select **Install** → **From URL**
-3. Enter: `https://raw.githubusercontent.com/jlupien/hubitat-rivian/master/packageManifest.json`
+3. Enter: `https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/rivian-connect/packageManifest.json`
 4. Click **Next** and follow the prompts to install
 
 Don't have HPM? [Install it first](https://community.hubitat.com/t/how-to-install-hubitat-package-manager-or-any-other-user-app/92387) - it makes managing updates easy.

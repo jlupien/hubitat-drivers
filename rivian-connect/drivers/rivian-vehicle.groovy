@@ -42,9 +42,9 @@ import groovy.transform.Field
 metadata {
     definition(
         name: "Rivian Vehicle",
-        namespace: "hubitat-rivian",
-        author: "Community",
-        importUrl: ""
+        namespace: "jlupien",
+        author: "Jeff Lupien",
+        importUrl: "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/rivian-connect/drivers/rivian-vehicle.groovy"
     ) {
         // Standard Hubitat Capabilities
         capability "Battery"                  // battery attribute (0-100)
