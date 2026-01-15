@@ -247,6 +247,12 @@ def updated() {
     if (lat != null && lon != null) {
         updatePresence(lat, lon)
     }
+
+    // Auto-disable debug logging after 30 minutes
+    if (settings.logEnable) {
+        runIn(1800, "logsOff")
+        logInfo "Debug logging will auto-disable in 30 minutes"
+    }
 }
 
 def initialize() {
@@ -1265,3 +1271,8 @@ def logWarn(msg)  { log.warn  "${device.displayName}: ${msg}" }
 def logError(msg) { log.error "${device.displayName}: ${msg}" }
 def logDebug(msg) { if (settings.logEnable) log.debug "${device.displayName}: ${msg}" }
 def logTrace(msg) { if (settings.logTrace) log.trace "${device.displayName}: ${msg}" }
+
+def logsOff() {
+    logInfo "Debug logging disabled"
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
+}

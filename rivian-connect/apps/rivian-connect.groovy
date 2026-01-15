@@ -176,7 +176,7 @@ def authProgressPage() {
         return dynamicPage(name: "authProgressPage", title: "Verification Required", nextPage: "otpPage") {
             section {
                 paragraph "Two-factor authentication is required."
-                paragraph "A verification code has been sent to your phone."
+                paragraph "A verification code has been sent to your phone or email."
                 paragraph "Click Next to enter the code."
             }
         }
@@ -300,23 +300,43 @@ def vehicleSelectPage() {
 def applyVehiclesPage() {
     logDebug "applyVehiclesPage() called"
 
-    // Apply the vehicle selection
-    applyVehicleSelection()
+    // Don't create devices here - that happens in installed()/updated() after Done is clicked
+    // Just show a preview of what will happen
 
-    def devices = getChildDevices()
+    def selected = settings.selectedVehicles ?: []
+    def existingDeviceIds = getChildDevices().collect { it.getDataValue("vehicleId") }
 
-    dynamicPage(name: "applyVehiclesPage", title: "Vehicles Updated", nextPage: "mainPage") {
+    def toAdd = selected.findAll { !existingDeviceIds.contains(it) }
+    def toRemove = existingDeviceIds.findAll { !selected.contains(it) }
+
+    dynamicPage(name: "applyVehiclesPage", title: "Confirm Changes", nextPage: "mainPage") {
         section {
-            if (devices) {
-                paragraph "<span style='color:green'>✓ Vehicle configuration updated!</span>"
-                paragraph "Installed vehicles:"
-                devices.each { device ->
-                    paragraph "• ${device.displayName}"
+            paragraph "<b>Important:</b> You must click <b>Done</b> on the next page to save your changes and create the vehicle devices."
+        }
+
+        if (toAdd || toRemove) {
+            section("Pending Changes") {
+                toAdd.each { vehicleId ->
+                    def vehicle = state.vehicles[vehicleId]
+                    paragraph "➕ Will add: ${vehicle?.name ?: vehicle?.model ?: vehicleId}"
                 }
-            } else {
-                paragraph "No vehicles installed."
+                toRemove.each { vehicleId ->
+                    def device = getChildDevices().find { it.getDataValue("vehicleId") == vehicleId }
+                    paragraph "➖ Will remove: ${device?.displayName ?: vehicleId}"
+                }
             }
-            paragraph "Click <b>Next</b> to return to the main page."
+        } else if (selected) {
+            section("No Changes") {
+                paragraph "Your vehicle selection hasn't changed."
+            }
+        } else {
+            section("No Vehicles Selected") {
+                paragraph "No vehicles will be installed."
+            }
+        }
+
+        section {
+            paragraph "Click <b>Next</b> to return to the main page, then click <b>Done</b> to apply changes."
         }
     }
 }
@@ -351,19 +371,23 @@ def appButtonHandler(btn) {
 def installed() {
     logInfo "Rivian Connect installed"
     initialize()
+    // Apply vehicle selection on first install
+    applyVehicleSelection()
 }
 
 def updated() {
     logInfo "Rivian Connect updated"
     unschedule()
     initialize()
+    // Apply any pending vehicle selection changes
+    applyVehicleSelection()
 }
 
 def initialize() {
     logInfo "Initializing Rivian Connect v${VERSION}"
 
-    // Schedule token refresh every 12 hours
-    runEvery12Hours("refreshTokens")
+    // Schedule token refresh every 12 hours (at minute 0 of hours 0 and 12)
+    schedule("0 0 0,12 * * ?", "refreshTokens")
 }
 
 def uninstalled() {
