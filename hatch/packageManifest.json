@@ -1,12 +1,12 @@
 {
   "packageName": "Hatch Connect",
   "author": "Jeff Lupien",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-01-12",
+  "dateReleased": "2026-01-14",
   "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
   "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/hatch#readme",
-  "releaseNotes": "Initial release - Hatch Rest+ control with light, sound, and favorites",
+  "releaseNotes": "v1.1.0: MQTT keep-alive, firmware/battery attributes, mute support, favorites implementation, bug fixes for audio commands",
   "apps": [
     {
       "id": "8f3a2b1c-5d4e-6f7a-8b9c-0d1e2f3a4b5c",

@@ -26,26 +26,10 @@ import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
 import java.net.URLEncoder
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.1.0"
 @Field static final String HATCH_API_URL = "https://prod-sleep.hatchbaby.com"
 @Field static final String DRIVER_NAME = "Hatch Rest+"
 @Field static final String DRIVER_NAMESPACE = "jlupien"
-
-// Audio track mapping for Rest+
-@Field static final Map AUDIO_TRACKS = [
-    0: "None",
-    1: "Stream",
-    2: "PinkNoise",
-    3: "Dryer",
-    4: "Ocean",
-    5: "Wind",
-    6: "Rain",
-    7: "Bird",
-    8: "Crickets",
-    9: "Brahms",
-    10: "Twinkle",
-    11: "RockABye"
-]
 
 definition(
     name: "Hatch Connect",
@@ -67,7 +51,7 @@ preferences {
 }
 
 // Set to true for debug logging during development
-@Field static final boolean DEV_MODE = true
+@Field static final boolean DEV_MODE = false
 
 // ==================== Pages ====================
 
@@ -693,50 +677,6 @@ def discoverDevices() {
 
 // ==================== AWS SigV4 Signing ====================
 
-def signAwsRequest(String method, String host, String path, String body, String service = "iotdata") {
-    def now = new Date()
-    def amzDate = now.format("yyyyMMdd'T'HHmmss'Z'", TimeZone.getTimeZone('UTC'))
-    def dateStamp = now.format("yyyyMMdd", TimeZone.getTimeZone('UTC'))
-
-    def algorithm = "AWS4-HMAC-SHA256"
-    def scope = "${dateStamp}/${state.awsRegion}/${service}/aws4_request"
-
-    // Canonical request
-    // For temporary credentials, x-amz-security-token MUST be included in signed headers
-    def canonicalUri = path
-    def canonicalQuerystring = ""
-    // Headers must be in alphabetical order: host, x-amz-date, x-amz-security-token
-    def canonicalHeaders = "host:${host}\nx-amz-date:${amzDate}\nx-amz-security-token:${state.awsSessionToken}\n"
-    def signedHeaders = "host;x-amz-date;x-amz-security-token"
-    def payloadHash = sha256Hex(body ?: "")
-
-    def canonicalRequest = "${method}\n${canonicalUri}\n${canonicalQuerystring}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}"
-    logDebug "Canonical request:\n${canonicalRequest}"
-
-    // String to sign
-    def stringToSign = "${algorithm}\n${amzDate}\n${scope}\n${sha256Hex(canonicalRequest)}"
-    logDebug "String to sign:\n${stringToSign}"
-
-    // Signing key
-    def kDate = hmacSha256("AWS4${state.awsSecretKey}".getBytes("UTF-8"), dateStamp)
-    def kRegion = hmacSha256(kDate, state.awsRegion)
-    def kService = hmacSha256(kRegion, service)
-    def kSigning = hmacSha256(kService, "aws4_request")
-
-    // Signature
-    def signature = hmacSha256Hex(kSigning, stringToSign)
-
-    // Authorization header
-    def authHeader = "${algorithm} Credential=${state.awsAccessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}"
-
-    return [
-        "Authorization": authHeader,
-        "x-amz-date": amzDate,
-        "x-amz-security-token": state.awsSessionToken,
-        "Host": host
-    ]
-}
-
 def sha256Hex(String data) {
     def digest = MessageDigest.getInstance("SHA-256")
     def hash = digest.digest(data.getBytes("UTF-8"))
@@ -837,16 +777,10 @@ def updateDeviceShadow(String thingName, Map desiredState) {
 
     refreshTokensIfNeeded()
 
-    // Queue the shadow update for MQTT delivery
-    if (!state.pendingUpdates) {
-        state.pendingUpdates = [:]
-    }
-    state.pendingUpdates[thingName] = desiredState
-
-    // Trigger MQTT connection to send update
+    // Log the shadow update - actual MQTT sending is handled by the child device
     sendMqttUpdate(thingName, desiredState)
 
-    return [success: true, queued: true]
+    return [success: true]
 }
 
 def sendMqttUpdate(String thingName, Map desiredState) {
@@ -859,15 +793,8 @@ def sendMqttUpdate(String thingName, Map desiredState) {
     logDebug "MQTT topic: ${topic}"
     logDebug "MQTT payload: ${payload}"
 
-    // For now, log the intended action
-    // Full MQTT implementation requires WebSocket + MQTT protocol
+    // Log the intended action - actual MQTT sending is handled by the child device
     logInfo "Shadow update queued for ${thingName}: ${desiredState}"
-
-    // Notify child device of pending update
-    def childDevice = getChildDevices().find { it.getDataValue("thingName") == thingName }
-    if (childDevice && childDevice.hasCommand("mqttUpdate")) {
-        childDevice.mqttUpdate(topic, payload)
-    }
 
     return true
 }
@@ -962,9 +889,6 @@ def getTokens() {
     ]
 }
 
-def getAudioTracks() {
-    return AUDIO_TRACKS
-}
 
 // ==================== Lifecycle ====================
 

@@ -23,7 +23,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 import hubitat.helper.HexUtils
 
-@Field static final String VERSION = "1.0.1"
+@Field static final String VERSION = "1.1.0"
 
 // MQTT Protocol Constants
 @Field static final int MQTT_CONNECT = 0x10
@@ -94,6 +94,9 @@ metadata {
         attribute "connectionStatus", "string"  // online, offline, connecting
         attribute "lastUpdate", "string"        // Timestamp of last state update
         attribute "mqttStatus", "string"        // connected, disconnected, connecting
+        attribute "mute", "string"              // muted, unmuted (for AudioVolume capability)
+        attribute "firmwareVersion", "string"   // Device firmware version
+        attribute "batteryLevel", "number"      // Battery level percentage
 
         // Light-specific attributes
         attribute "lightOn", "string"           // on, off (light state separate from overall power)
@@ -218,8 +221,25 @@ def processDeviceState(shadow) {
         return
     }
 
-    sendEvent(name: "connectionStatus", value: "online")
+    // Connection status from device (separate from MQTT connection)
+    if (reported.containsKey("connected")) {
+        sendEvent(name: "connectionStatus", value: reported.connected ? "online" : "offline")
+    } else {
+        sendEvent(name: "connectionStatus", value: "online")
+    }
     sendEvent(name: "lastUpdate", value: new Date().format("yyyy-MM-dd HH:mm:ss"))
+
+    // Device info (firmware, battery)
+    if (reported.deviceInfo) {
+        if (reported.deviceInfo.f) {
+            sendEvent(name: "firmwareVersion", value: reported.deviceInfo.f)
+            logDebug "Firmware: ${reported.deviceInfo.f}"
+        }
+        if (reported.deviceInfo.b != null) {
+            sendEvent(name: "batteryLevel", value: reported.deviceInfo.b, unit: "%")
+            logDebug "Battery: ${reported.deviceInfo.b}%"
+        }
+    }
 
     // Power state
     if (reported.containsKey("isPowered")) {
@@ -267,6 +287,8 @@ def processDeviceState(shadow) {
         if (audio.containsKey("v")) {
             def volume = Math.round(audio.v * 100.0 / IOT_MAX)
             sendEvent(name: "volume", value: volume, unit: "%")
+            // Update mute attribute based on volume
+            sendEvent(name: "mute", value: volume == 0 ? "muted" : "unmuted")
             logDebug "Volume: ${volume}%"
         }
 
@@ -306,14 +328,15 @@ def setLevel(level, duration = null) {
     def currentSat = device.currentValue("saturation") ?: 100
     def rgb = hsvToRgb(currentHue, currentSat, 100)
 
+    // Only update light settings, don't change power state
+    // This allows audio to continue playing even with light off
     updateShadow([
         c: [
             r: rgb.red,
             g: rgb.green,
             b: rgb.blue,
             i: intensity
-        ],
-        isPowered: level > 0
+        ]
     ])
 }
 
@@ -366,7 +389,13 @@ def setVolume(volumeLevel) {
     logInfo "Setting volume to ${volumeLevel}%"
 
     def iotVolume = Math.round(volumeLevel * IOT_MAX / 100.0)
-    updateShadow([a: [v: iotVolume]])
+
+    // Preserve current audio track when changing volume
+    def currentTrack = device.currentValue("audioTrackNumber") ?: 0
+    updateShadow([a: [v: iotVolume, t: currentTrack]])
+
+    // Update mute attribute
+    sendEvent(name: "mute", value: volumeLevel == 0 ? "muted" : "unmuted")
 }
 
 def volumeUp() {
@@ -384,12 +413,14 @@ def volumeDown() {
 def mute() {
     logInfo "Muting audio"
     state.preMuteVolume = device.currentValue("volume") ?: 50
+    sendEvent(name: "mute", value: "muted")
     setVolume(0)
 }
 
 def unmute() {
     logInfo "Unmuting audio"
     def volume = state.preMuteVolume ?: 50
+    sendEvent(name: "mute", value: "unmuted")
     setVolume(volume)
 }
 
@@ -401,7 +432,10 @@ def setAudioTrack(trackNumber) {
         return
     }
 
-    updateShadow([a: [t: trackNumber]])
+    // Preserve current volume when changing track
+    def currentVolume = device.currentValue("volume") ?: 50
+    def iotVolume = Math.round(currentVolume * IOT_MAX / 100.0)
+    updateShadow([a: [t: trackNumber, v: iotVolume]])
 }
 
 def setAudioTrackByName(trackName) {
@@ -434,13 +468,29 @@ def fetchFavorites() {
 
     def favorites = parent.getFavorites(macAddress)
     if (favorites) {
+        // Store full favorite data including settings
         state.favorites = favorites.collect { fav ->
-            [
+            def favData = [
                 id: fav.id,
                 name: fav.name ?: "Favorite ${fav.id}"
             ]
+            // Store the device settings if available
+            if (fav.steps && fav.steps.size() > 0) {
+                // Routines have steps, use the first step's settings
+                def step = fav.steps[0]
+                if (step.a) favData.audio = step.a
+                if (step.c) favData.color = step.c
+                if (step.containsKey("isPowered")) favData.isPowered = step.isPowered
+            } else {
+                // Direct favorite format
+                if (fav.a) favData.audio = fav.a
+                if (fav.c) favData.color = fav.c
+                if (fav.containsKey("isPowered")) favData.isPowered = fav.isPowered
+            }
+            return favData
         }
-        logInfo "Loaded ${state.favorites.size()} favorites"
+        logInfo "Loaded ${state.favorites.size()} favorites/routines"
+        logDebug "Favorites: ${state.favorites}"
 
         // Update command constraint
         updateFavoritesList()
@@ -448,7 +498,6 @@ def fetchFavorites() {
 }
 
 def updateFavoritesList() {
-    // This would update the playFavorite command options
     // Hubitat doesn't support dynamic command constraints, so favorites are stored in state
     logDebug "Favorites available: ${state.favorites?.collect { it.name }}"
 }
@@ -468,14 +517,29 @@ def playFavorite(favoriteName) {
         return
     }
 
-    // Apply favorite settings via shadow update
-    // The exact format depends on how Hatch stores favorites
-    // This may need adjustment based on actual API response
-    logDebug "Applying favorite ID: ${favorite.id}"
+    logDebug "Applying favorite: ${favorite}"
 
-    // For now, log that we would apply the favorite
-    // Full implementation requires knowing the favorite's stored settings
-    logWarn "Favorite application not yet implemented - favorite ID: ${favorite.id}"
+    // Build shadow update from favorite settings
+    def shadowUpdate = [:]
+
+    if (favorite.containsKey("isPowered")) {
+        shadowUpdate.isPowered = favorite.isPowered
+    }
+
+    if (favorite.audio) {
+        shadowUpdate.a = favorite.audio
+    }
+
+    if (favorite.color) {
+        shadowUpdate.c = favorite.color
+    }
+
+    if (shadowUpdate) {
+        updateShadow(shadowUpdate)
+        logInfo "Applied favorite: ${favorite.name}"
+    } else {
+        logWarn "Favorite has no settings to apply: ${favorite.name}"
+    }
 }
 
 // ==================== Shadow Update ====================
@@ -659,6 +723,10 @@ def connectMqtt() {
 
 def disconnectMqtt() {
     logInfo "Disconnecting MQTT"
+
+    // Stop keep-alive pings
+    unschedule("mqttPing")
+
     try {
         // Send MQTT DISCONNECT
         def packet = [(byte)MQTT_DISCONNECT, (byte)0]
@@ -676,6 +744,18 @@ def disconnectMqtt() {
     sendEvent(name: "mqttStatus", value: "disconnected")
 }
 
+def mqttPing() {
+    if (device.currentValue("mqttStatus") != "connected") {
+        logDebug "MQTT not connected, skipping ping"
+        unschedule("mqttPing")
+        return
+    }
+
+    logDebug "Sending MQTT PINGREQ"
+    def packet = [(byte)MQTT_PINGREQ, (byte)0]
+    sendMqttPacket(packet as byte[])
+}
+
 // WebSocket callbacks
 def webSocketStatus(String status) {
     logDebug "WebSocket status: ${status}"
@@ -685,10 +765,12 @@ def webSocketStatus(String status) {
         sendMqttConnect()
     } else if (status.startsWith("status: closing") || status.startsWith("status: closed")) {
         logInfo "WebSocket closed"
+        unschedule("mqttPing")
         sendEvent(name: "mqttStatus", value: "disconnected")
         sendEvent(name: "connectionStatus", value: "offline")
     } else if (status.startsWith("failure:")) {
         logError "WebSocket failure: ${status}"
+        unschedule("mqttPing")
         sendEvent(name: "mqttStatus", value: "disconnected")
         sendEvent(name: "connectionStatus", value: "offline")
     }
@@ -795,6 +877,9 @@ def handleConnack(byte[] bytes) {
             logInfo "MQTT connected successfully"
             sendEvent(name: "mqttStatus", value: "connected")
             sendEvent(name: "connectionStatus", value: "online")
+
+            // Schedule MQTT keep-alive pings (every 4 minutes, keep-alive is 5 min)
+            runEvery1Minute("mqttPing")
 
             // Subscribe to shadow topics
             subscribeToShadow()
