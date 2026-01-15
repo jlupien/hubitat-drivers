@@ -536,7 +536,7 @@ def rgbToHsv(r, g, b) {
         saturation = (delta / max) * 100
 
         if (max == rNorm) {
-            hue = 60 * (((gNorm - bNorm) / delta) % 6)
+            hue = 60 * (((gNorm - bNorm) / delta).doubleValue() % 6)
         } else if (max == gNorm) {
             hue = 60 * (((bNorm - rNorm) / delta) + 2)
         } else {
@@ -559,7 +559,7 @@ def hsvToRgb(h, s, v) {
     def val = v / 100.0
 
     def c = val * sat
-    def x = c * (1 - Math.abs((hue / 60) % 2 - 1))
+    def x = c * (1 - Math.abs((hue / 60).doubleValue() % 2 - 1))
     def m = val - c
 
     def rPrime, gPrime, bPrime
