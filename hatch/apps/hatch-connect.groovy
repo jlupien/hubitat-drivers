@@ -90,6 +90,10 @@ def mainPage() {
                 input "refreshTokens", "button", title: "Refresh Authentication"
                 input "logout", "button", title: "Logout"
             }
+
+            section("Settings") {
+                input "debugLogging", "bool", title: "Enable Debug Logging", defaultValue: false
+            }
         } else {
             section("Authentication") {
                 href "credentialsPage", title: "Login to Hatch",
@@ -444,7 +448,7 @@ def loginToHatch(String email, String password) {
     logDebug "loginToHatch() called"
 
     def bodyJson = JsonOutput.toJson([email: email, password: password])
-    logDebug "Login request body: ${bodyJson}"
+    logDebug "Login request for ${email}"
 
     def params = [
         uri: "${HATCH_API_URL}/public/v1/login",
@@ -464,7 +468,6 @@ def loginToHatch(String email, String password) {
         def result = [success: false]
         httpPost(params) { resp ->
             logDebug "Login response status: ${resp.status}"
-            logDebug "Login response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.payload?.token) {
@@ -512,7 +515,6 @@ def fetchIotToken() {
         def result = [success: false]
         httpGet(params) { resp ->
             logDebug "IoT token response status: ${resp.status}"
-            logDebug "IoT token response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.payload) {
@@ -527,8 +529,6 @@ def fetchIotToken() {
                     state.iotEndpoint = endpoint
                     result.success = true
                     logDebug "Got IoT token - Region: ${state.awsRegion}, Endpoint: ${state.iotEndpoint}"
-                    logDebug "IdentityId: ${state.identityId}"
-                    logDebug "CognitoToken length: ${state.cognitoToken?.length()}"
                 } else {
                     result.error = "No payload in response"
                 }
@@ -545,8 +545,6 @@ def fetchIotToken() {
 
 def exchangeForAwsCredentials() {
     logDebug "exchangeForAwsCredentials() called"
-    logDebug "Using IdentityId: ${state.identityId}"
-    logDebug "Using cognitoToken (first 50 chars): ${state.cognitoToken?.take(50)}..."
 
     def cognitoUrl = "https://cognito-identity.${state.awsRegion}.amazonaws.com/"
 
@@ -557,8 +555,7 @@ def exchangeForAwsCredentials() {
         ]
     ])
 
-    logDebug "Cognito request URL: ${cognitoUrl}"
-    logDebug "Cognito request body: ${body}"
+    logDebug "Requesting AWS credentials from Cognito"
 
     def params = [
         uri: cognitoUrl,
@@ -576,7 +573,6 @@ def exchangeForAwsCredentials() {
         def result = [success: false]
         httpPost(params) { resp ->
             logDebug "Cognito response status: ${resp.status}"
-            logDebug "Cognito response data: ${resp.data}"
             if (resp.status == 200) {
                 def data = resp.data
                 if (data?.Credentials) {
@@ -731,11 +727,9 @@ def generatePresignedMqttUrl() {
     // Format: METHOD\nURI\nQUERY\nHEADERS\n\nSIGNED_HEADERS\nPAYLOAD_HASH
     // Note: There must be an empty line between headers and signed headers (double \n)
     def canonicalRequest = "${method}\n${canonicalUri}\n${canonicalQuerystring}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}"
-    logDebug "Canonical request for WebSocket:\n${canonicalRequest}"
 
     // Create string to sign
     def stringToSign = "${algorithm}\n${amzDate}\n${credentialScope}\n${sha256Hex(canonicalRequest)}"
-    logDebug "String to sign:\n${stringToSign}"
 
     // Calculate signature
     def kDate = hmacSha256("AWS4${state.awsSecretKey}".getBytes("UTF-8"), dateStamp)

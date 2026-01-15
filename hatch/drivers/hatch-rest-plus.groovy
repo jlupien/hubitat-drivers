@@ -119,6 +119,7 @@ metadata {
         input name: "defaultColor", type: "color", title: "Default Light Color",
               defaultValue: "#FF8C00", required: false
         input name: "logEnable", type: "bool", title: "Enable Debug Logging", defaultValue: true
+        input name: "traceEnable", type: "bool", title: "Enable Trace Logging (verbose)", defaultValue: false
         input name: "txtEnable", type: "bool", title: "Enable Info Logging", defaultValue: true
     }
 }
@@ -213,7 +214,8 @@ def refresh() {
 // ==================== State Processing ====================
 
 def processDeviceState(shadow) {
-    logDebug "Processing shadow state: ${shadow}"
+    logDebug "Processing shadow state"
+    logTrace "Full shadow: ${shadow}"
 
     def reported = shadow?.state?.reported
     if (!reported) {
@@ -669,6 +671,12 @@ def getColorName(hue, saturation) {
 
 // ==================== Logging ====================
 
+def logTrace(msg) {
+    if (settings.traceEnable) {
+        log.debug "HatchRest+[${device.displayName}]: TRACE: ${msg}"
+    }
+}
+
 def logDebug(msg) {
     if (settings.logEnable) {
         log.debug "HatchRest+[${device.displayName}]: ${msg}"
@@ -954,7 +962,8 @@ def requestShadow() {
 }
 
 def mqttPublish(String topic, String payload, int qos) {
-    logDebug "Publishing to ${topic}: ${payload}"
+    logDebug "Publishing to ${topic}"
+    logTrace "Payload: ${payload}"
 
     def topicBytes = topic.getBytes("UTF-8")
     def payloadBytes = payload.getBytes("UTF-8")
@@ -1009,7 +1018,8 @@ def handlePublish(byte[] bytes) {
     def payloadBytes = bytes[idx..-1]
     def payload = new String(payloadBytes as byte[], "UTF-8")
 
-    logDebug "MQTT message on ${topic}: ${payload}"
+    logDebug "MQTT message on ${topic}"
+    logTrace "Payload: ${payload}"
 
     // Process shadow message
     processShadowMessage(topic, payload)
