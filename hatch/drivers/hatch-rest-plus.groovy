@@ -170,6 +170,17 @@ def initialize() {
 
     // Fetch favorites
     runIn(5, "fetchFavorites")
+
+    // Auto-disable debug logging after 30 minutes
+    if (settings.logEnable) {
+        runIn(1800, "logsOff")
+    }
+}
+
+def logsOff() {
+    logInfo "Debug logging disabled automatically"
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
+    device.updateSetting("traceEnable", [value: "false", type: "bool"])
 }
 
 def uninstalled() {

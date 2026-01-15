@@ -903,6 +903,16 @@ def initialize() {
 
     // Schedule token refresh every 30 minutes
     runEvery30Minutes("refreshTokensIfNeeded")
+
+    // Auto-disable debug logging after 30 minutes
+    if (settings.debugLogging) {
+        runIn(1800, "logsOff")
+    }
+}
+
+def logsOff() {
+    logInfo "Debug logging disabled automatically"
+    app.updateSetting("debugLogging", [value: "false", type: "bool"])
 }
 
 def uninstalled() {

@@ -247,12 +247,6 @@ def updated() {
     if (lat != null && lon != null) {
         updatePresence(lat, lon)
     }
-
-    // Auto-disable debug logging after 30 minutes
-    if (settings.logEnable) {
-        runIn(1800, "logsOff")
-        logInfo "Debug logging will auto-disable in 30 minutes"
-    }
 }
 
 def initialize() {
@@ -281,6 +275,12 @@ def initialize() {
         case "5":  runEvery5Minutes("watchdog"); break
         case "15": runEvery15Minutes("watchdog"); break
         case "30": runEvery30Minutes("watchdog"); break
+    }
+
+    // Auto-disable debug logging after 30 minutes
+    if (settings.logEnable) {
+        runIn(1800, "logsOff")
+        logInfo "Debug logging will auto-disable in 30 minutes"
     }
 
     logInfo "Initialization complete - WebSocket will connect in 5 seconds"
