@@ -1,12 +1,12 @@
 {
   "packageName": "Rivian Connect",
   "author": "Jeff Lupien",
-  "version": "1.0.1",
+  "version": "1.1.2",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2025-01-11",
+  "dateReleased": "2025-01-15",
   "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
   "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/rivian-connect#readme",
-  "releaseNotes": "Initial release - real-time Rivian vehicle monitoring via WebSocket with 70+ attributes",
+  "releaseNotes": "v1.1.2: Debug logging now auto-disables after 30 minutes for new devices; fixed scheduler syntax error. v1.1.1: Fixed app installation flow to prevent orphaned devices when not clicking Done. v1.0.0: Initial release with real-time Rivian vehicle monitoring via WebSocket, 70+ attributes, presence detection, and multi-vehicle support.",
   "apps": [
     {
       "id": "c44e86d5-9073-468c-8ed4-89da3a81ff17",

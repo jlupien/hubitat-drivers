@@ -23,7 +23,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 import hubitat.helper.HexUtils
 
-@Field static final String VERSION = "1.1.0"
+@Field static final String VERSION = "1.1.1"
 
 // MQTT Protocol Constants
 @Field static final int MQTT_CONNECT = 0x10

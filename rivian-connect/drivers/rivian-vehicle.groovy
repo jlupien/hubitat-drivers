@@ -21,7 +21,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.1.2"
 @Field static final String WEBSOCKET_URL = "wss://api.rivian.com/gql-consumer-subscriptions/graphql"
 @Field static final Integer RECONNECT_DELAY_MAX = 3600 // 1 hour max
 

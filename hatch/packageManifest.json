@@ -1,12 +1,12 @@
 {
   "packageName": "Hatch Connect",
   "author": "Jeff Lupien",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-01-14",
+  "dateReleased": "2026-01-15",
   "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
   "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/hatch#readme",
-  "releaseNotes": "v1.1.0: Initial version, partially tested support for Rest+",
+  "releaseNotes": "v1.1.1: Debug logging auto-disables after 30 minutes, reduced verbose logging, removed sensitive data from logs\n\nv1.1.0: Initial release with Rest+ support - light control (RGB, brightness), sound control (12 audio tracks, volume), MQTT over WebSocket, firmware/battery attributes",
   "apps": [
     {
       "id": "8f3a2b1c-5d4e-6f7a-8b9c-0d1e2f3a4b5c",

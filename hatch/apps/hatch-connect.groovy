@@ -26,7 +26,7 @@ import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
 import java.net.URLEncoder
 
-@Field static final String VERSION = "1.1.0"
+@Field static final String VERSION = "1.1.1"
 @Field static final String HATCH_API_URL = "https://prod-sleep.hatchbaby.com"
 @Field static final String DRIVER_NAME = "Hatch Rest+"
 @Field static final String DRIVER_NAMESPACE = "jlupien"
