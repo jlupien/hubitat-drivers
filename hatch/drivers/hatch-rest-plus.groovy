@@ -646,10 +646,9 @@ def connectMqtt() {
     state.pendingPublishes = []
 
     try {
-        interfaces.webSocket.connect(wsUrl, [
-            pingInterval: 30,
-            headers: ["Sec-WebSocket-Protocol": "mqtt"]
-        ])
+        // AWS IoT requires Sec-WebSocket-Protocol: mqtt header for WebSocket MQTT connections
+        // byteInterface: true is required for binary MQTT protocol (messages sent/received as hex)
+        interfaces.webSocket.connect(wsUrl, headers: ["Sec-WebSocket-Protocol": "mqtt"], byteInterface: true)
         return true
     } catch (e) {
         logError "WebSocket connect error: ${e.message}"
@@ -663,7 +662,7 @@ def disconnectMqtt() {
     try {
         // Send MQTT DISCONNECT
         def packet = [(byte)MQTT_DISCONNECT, (byte)0]
-        interfaces.webSocket.sendMessage(new String(packet as byte[]))
+        sendMqttPacket(packet as byte[])
     } catch (e) {
         logDebug "Error sending disconnect: ${e.message}"
     }
@@ -741,7 +740,7 @@ def sendMqttConnect() {
     logDebug "Sending MQTT CONNECT"
 
     // Build client ID
-    def clientId = "hubitat-${device.deviceNetworkId}-${System.currentTimeMillis()}"
+    def clientId = "hubitat-${device.deviceNetworkId}-${now()}"
 
     // MQTT CONNECT packet
     // Fixed header: CONNECT (0x10) + remaining length
@@ -967,14 +966,21 @@ def sendMqttPacket(byte[] packet) {
 }
 
 def encodeRemainingLength(List packet, int length) {
-    do {
-        def encodedByte = length % 128
-        length = length / 128
+    def encodedByte = length % 128
+    length = (int)(length / 128)
+    if (length > 0) {
+        encodedByte = encodedByte | 0x80
+    }
+    packet.add((byte)encodedByte)
+
+    while (length > 0) {
+        encodedByte = length % 128
+        length = (int)(length / 128)
         if (length > 0) {
             encodedByte = encodedByte | 0x80
         }
         packet.add((byte)encodedByte)
-    } while (length > 0)
+    }
 }
 
 def decodeRemainingLength(byte[] bytes, int startIdx) {
@@ -982,12 +988,17 @@ def decodeRemainingLength(byte[] bytes, int startIdx) {
     def value = 0
     def idx = startIdx
 
-    do {
-        def encodedByte = bytes[idx] & 0xFF
+    def encodedByte = bytes[idx] & 0xFF
+    value += (encodedByte & 0x7F) * multiplier
+    multiplier *= 128
+    idx++
+
+    while ((encodedByte & 0x80) != 0 && idx < bytes.length) {
+        encodedByte = bytes[idx] & 0xFF
         value += (encodedByte & 0x7F) * multiplier
         multiplier *= 128
         idx++
-    } while ((bytes[idx - 1] & 0x80) != 0 && idx < bytes.length)
+    }
 
     return [value, idx - startIdx]
 }

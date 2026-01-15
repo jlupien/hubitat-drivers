@@ -772,13 +772,14 @@ def generatePresignedMqttUrl() {
     def canonicalUri = "/mqtt"
     def credentialScope = "${dateStamp}/${region}/${service}/aws4_request"
 
-    // Query string parameters (must be in alphabetical order)
+    // Query string parameters for signing (must be in alphabetical order)
+    // IMPORTANT: For AWS IoT, X-Amz-Security-Token must NOT be included in the canonical query string
+    // It gets added to the final URL AFTER the signature is calculated
     def credential = URLEncoder.encode("${state.awsAccessKeyId}/${credentialScope}", "UTF-8")
     def canonicalQuerystring = "X-Amz-Algorithm=${algorithm}"
     canonicalQuerystring += "&X-Amz-Credential=${credential}"
     canonicalQuerystring += "&X-Amz-Date=${amzDate}"
-    canonicalQuerystring += "&X-Amz-Expires=86400"
-    canonicalQuerystring += "&X-Amz-Security-Token=${URLEncoder.encode(state.awsSessionToken, 'UTF-8')}"
+    canonicalQuerystring += "&X-Amz-Expires=300"  // Max 300 seconds for IoT
     canonicalQuerystring += "&X-Amz-SignedHeaders=host"
 
     // Canonical headers
@@ -787,6 +788,8 @@ def generatePresignedMqttUrl() {
     def payloadHash = sha256Hex("")
 
     // Create canonical request
+    // Format: METHOD\nURI\nQUERY\nHEADERS\n\nSIGNED_HEADERS\nPAYLOAD_HASH
+    // Note: There must be an empty line between headers and signed headers (double \n)
     def canonicalRequest = "${method}\n${canonicalUri}\n${canonicalQuerystring}\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}"
     logDebug "Canonical request for WebSocket:\n${canonicalRequest}"
 
@@ -801,8 +804,10 @@ def generatePresignedMqttUrl() {
     def kSigning = hmacSha256(kService, "aws4_request")
     def signature = hmacSha256Hex(kSigning, stringToSign)
 
-    // Build final URL
+    // Build final URL - add signature first, then session token AFTER signing
     def url = "wss://${host}${canonicalUri}?${canonicalQuerystring}&X-Amz-Signature=${signature}"
+    // Add session token at the end (not included in signature for AWS IoT)
+    url += "&X-Amz-Security-Token=${URLEncoder.encode(state.awsSessionToken, 'UTF-8')}"
     logDebug "Presigned WebSocket URL generated (length: ${url.length()})"
 
     return url
