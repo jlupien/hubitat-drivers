@@ -8,6 +8,13 @@
       "tags": ["Vehicle", "Car", "EV", "Presence", "Rivian", "R1S", "R1T"],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/rivian-connect/packageManifest.json",
       "description": "Real-time Rivian vehicle integration with 70+ attributes"
+    },
+    {
+      "name": "Hatch Connect",
+      "category": "Integrations",
+      "tags": ["Hatch", "Rest", "Rest+", "Baby", "Nursery", "Sound Machine", "Night Light", "Sleep"],
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/hatch/packageManifest.json",
+      "description": "Control Hatch Rest+ devices - light, sound, and favorites"
     }
   ]
 }
