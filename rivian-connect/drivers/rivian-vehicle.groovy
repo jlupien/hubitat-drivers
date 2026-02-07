@@ -295,7 +295,7 @@ def uninstalled() {
 // ==================== WebSocket Methods ====================
 
 def connectWebSocket() {
-    logInfo "connectWebSocket() called"
+    logDebug "connectWebSocket() called"
 
     // Prevent multiple simultaneous connection attempts
     def currentStatus = device.currentValue("websocketStatus")
@@ -326,7 +326,7 @@ def connectWebSocket() {
         return
     }
 
-    logInfo "Connecting to Rivian WebSocket at ${WEBSOCKET_URL}..."
+    logDebug "Connecting to Rivian WebSocket at ${WEBSOCKET_URL}..."
     sendEvent(name: "websocketStatus", value: "connecting")
 
     try {
@@ -346,7 +346,7 @@ def connectWebSocket() {
             headers: headers,
             pingInterval: 120
         ], WEBSOCKET_URL)
-        logInfo "WebSocket connect() called successfully"
+        logDebug "WebSocket connect() called successfully"
     } catch (e) {
         logError "WebSocket connection failed: ${e.message}"
         sendEvent(name: "websocketStatus", value: "disconnected")
@@ -377,11 +377,11 @@ def disconnectWebSocket() {
 }
 
 def webSocketStatus(String status) {
-    logInfo "WebSocket status callback received: ${status}"
+    logDebug "WebSocket status callback received: ${status}"
 
     // Hubitat sends status like "status: open" or just "failure: reason"
     if (status.contains("open")) {
-        logInfo "WebSocket connected successfully!"
+        logDebug "WebSocket connected successfully!"
         state.reconnectDelay = 1
         state.lastWebSocketConnect = now()
         state.lastWsMessage = now()
@@ -429,7 +429,7 @@ def webSocketStatus(String status) {
 }
 
 def sendWebSocketInit() {
-    logInfo "Sending WebSocket connection_init"
+    logDebug "Sending WebSocket connection_init"
 
     def tokens = parent?.getTokens()
     def deviceCid = UUID.randomUUID().toString()
@@ -448,7 +448,7 @@ def sendWebSocketInit() {
 
     try {
         interfaces.webSocket.sendMessage(initMsg)
-        logInfo "Init message sent successfully"
+        logDebug "Init message sent successfully"
     } catch (e) {
         logError "Failed to send init message: ${e.message}"
     }
@@ -685,7 +685,7 @@ def parse(String message) {
 
         switch(json.type) {
             case "connection_ack":
-                logInfo "WebSocket connection acknowledged - sending subscription"
+                logDebug "WebSocket connection acknowledged - sending subscription"
                 // Send initial subscription
                 sendVehicleSubscription()
                 // Schedule periodic resubscription to keep connection alive
@@ -696,7 +696,7 @@ def parse(String message) {
 
             case "next":
                 // Data update
-                logInfo "Received vehicle data update"
+                logDebug "Received vehicle data update"
                 if (json.payload?.data?.vehicleState) {
                     processVehicleData(json.payload.data.vehicleState)
                 }
