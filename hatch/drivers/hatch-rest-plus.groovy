@@ -23,7 +23,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 import hubitat.helper.HexUtils
 
-@Field static final String VERSION = "1.1.1"
+@Field static final String VERSION = "1.2.0"
 
 // MQTT Protocol Constants
 @Field static final int MQTT_CONNECT = 0x10
@@ -36,40 +36,43 @@ import hubitat.helper.HexUtils
 @Field static final int MQTT_PINGRESP = 0xD0
 @Field static final int MQTT_DISCONNECT = 0xE0
 
-// Audio track mapping for Rest+
+// Audio track mapping for Rest+ (note: gaps at 1, 8, 12 per ha_hatch/homebridge refs)
 @Field static final Map AUDIO_TRACKS = [
     0: "None",
-    1: "Stream",
-    2: "PinkNoise",
-    3: "Dryer",
-    4: "Ocean",
-    5: "Wind",
-    6: "Rain",
-    7: "Bird",
-    8: "Crickets",
-    9: "Brahms",
-    10: "Twinkle",
-    11: "RockABye"
+    2: "Stream",
+    3: "PinkNoise",
+    4: "Dryer",
+    5: "Ocean",
+    6: "Wind",
+    7: "Rain",
+    9: "Bird",
+    10: "Crickets",
+    11: "Brahms",
+    13: "Twinkle",
+    14: "RockABye"
 ]
 
-// Reverse mapping (name -> number) - defined inline to avoid static scope issue
+// Reverse mapping (name -> number)
 @Field static final Map AUDIO_TRACK_NAMES = [
     "None": 0,
-    "Stream": 1,
-    "PinkNoise": 2,
-    "Dryer": 3,
-    "Ocean": 4,
-    "Wind": 5,
-    "Rain": 6,
-    "Bird": 7,
-    "Crickets": 8,
-    "Brahms": 9,
-    "Twinkle": 10,
-    "RockABye": 11
+    "Stream": 2,
+    "PinkNoise": 3,
+    "Dryer": 4,
+    "Ocean": 5,
+    "Wind": 6,
+    "Rain": 7,
+    "Bird": 9,
+    "Crickets": 10,
+    "Brahms": 11,
+    "Twinkle": 13,
+    "RockABye": 14
 ]
 
 // IoT value range (0-65535)
 @Field static final Integer IOT_MAX = 65535
+
+// MQTT connection max age before proactive reconnect (seconds)
+@Field static final int MQTT_MAX_AGE = 240
 
 metadata {
     definition(
@@ -97,14 +100,18 @@ metadata {
         attribute "mute", "string"              // muted, unmuted (for AudioVolume capability)
         attribute "firmwareVersion", "string"   // Device firmware version
         attribute "batteryLevel", "number"      // Battery level percentage
+        attribute "rssi", "number"              // WiFi signal strength (dBm)
+        attribute "activePreset", "number"      // Active preset index (0=none)
+        attribute "activeProgram", "string"     // Active program name (empty=none)
 
         // Light-specific attributes
         attribute "lightOn", "string"           // on, off (light state separate from overall power)
 
         // Custom Commands
-        command "setAudioTrack", [[name:"track", type:"NUMBER", description:"Track number (0-11, 0=None)"]]
+        command "setAudioTrack", [[name:"track", type:"NUMBER", description:"Track number (0=None, 2=Stream, 3=PinkNoise, 4=Dryer, 5=Ocean, 6=Wind, 7=Rain, 9=Bird, 10=Crickets, 11=Brahms, 13=Twinkle, 14=RockABye)"]]
         command "setAudioTrackByName", [[name:"name", type:"ENUM", constraints:getAudioTrackList()]]
-        command "playFavorite", [[name:"favorite", type:"ENUM", constraints:["Refresh list..."]]]
+        command "playPreset", [[name:"preset", type:"NUMBER", description:"Preset number (1-10)"]]
+        command "playFavorite", [[name:"favorite", type:"STRING", description:"Program name or 'Preset N'"]]
         command "stopAudio"
         command "lightOn"
         command "lightOff"
@@ -168,9 +175,6 @@ def initialize() {
     // Initial poll
     runIn(2, "poll")
 
-    // Fetch favorites
-    runIn(5, "fetchFavorites")
-
     // Auto-disable debug logging after 30 minutes
     if (settings.logEnable) {
         runIn(1800, "logsOff")
@@ -201,6 +205,14 @@ def poll() {
 
     // Check if MQTT is connected
     if (device.currentValue("mqttStatus") == "connected") {
+        // Check connection age - presigned URL expires after 300s
+        def connectedAt = state.mqttConnectedAt ?: 0
+        def ageSeconds = (now() - connectedAt) / 1000
+        if (ageSeconds > MQTT_MAX_AGE) {
+            logInfo "MQTT connection age ${Math.round(ageSeconds)}s exceeds ${MQTT_MAX_AGE}s, reconnecting proactively"
+            reconnectMqtt()
+            return
+        }
         // Request shadow state via MQTT
         requestShadow()
     } else {
@@ -226,13 +238,16 @@ def refresh() {
 
 def processDeviceState(shadow) {
     logDebug "Processing shadow state"
-    logTrace "Full shadow: ${shadow}"
 
     def reported = shadow?.state?.reported
     if (!reported) {
         logWarn "No reported state in shadow"
         return
     }
+
+    // Log key state fields without presets/programs (which are huge)
+    def summary = reported.findAll { k, v -> !["presets", "programs", "deviceInfo"].contains(k) }
+    logTrace "Shadow state: ${summary}"
 
     // Connection status from device (separate from MQTT connection)
     if (reported.containsKey("connected")) {
@@ -254,6 +269,12 @@ def processDeviceState(shadow) {
         }
     }
 
+    // RSSI
+    if (reported.containsKey("rssi")) {
+        sendEvent(name: "rssi", value: reported.rssi, unit: "dBm")
+        logDebug "RSSI: ${reported.rssi} dBm"
+    }
+
     // Power state
     if (reported.containsKey("isPowered")) {
         def powerState = reported.isPowered ? "on" : "off"
@@ -261,9 +282,29 @@ def processDeviceState(shadow) {
         logDebug "Power: ${powerState}"
     }
 
+    // Active preset/program indices
+    if (reported.containsKey("activePresetIndex")) {
+        sendEvent(name: "activePreset", value: reported.activePresetIndex)
+        logDebug "Active preset: ${reported.activePresetIndex}"
+    }
+    if (reported.containsKey("activeProgramIndex")) {
+        def progIdx = reported.activeProgramIndex
+        def progName = ""
+        if (progIdx > 0 && state.programs) {
+            def prog = state.programs[progIdx.toString()]
+            progName = prog?.name ?: "Program ${progIdx}"
+        }
+        sendEvent(name: "activeProgram", value: progName)
+        logDebug "Active program: ${progIdx} (${progName})"
+    }
+
     // Color/Light state (c = color object)
     if (reported.c) {
         def color = reported.c
+
+        // Cache R and W flags for buildDesiredState
+        if (color.containsKey("R")) state.lastColorR = color.R
+        if (color.containsKey("W")) state.lastColorW = color.W
 
         // Brightness/Level (i = intensity, 0-65535)
         if (color.containsKey("i")) {
@@ -273,11 +314,11 @@ def processDeviceState(shadow) {
             logDebug "Level: ${level}%"
         }
 
-        // RGB values
+        // RGB values (device uses 0-65535 range, convert to 0-255 for Hubitat)
         if (color.containsKey("r") && color.containsKey("g") && color.containsKey("b")) {
-            def r = color.r
-            def g = color.g
-            def b = color.b
+            def r = Math.round(color.r * 255.0 / IOT_MAX) as int
+            def g = Math.round(color.g * 255.0 / IOT_MAX) as int
+            def b = Math.round(color.b * 255.0 / IOT_MAX) as int
 
             // Convert RGB to HSV for Hubitat
             def hsv = rgbToHsv(r, g, b)
@@ -315,6 +356,116 @@ def processDeviceState(shadow) {
             logDebug "Audio Track: ${trackNum} (${trackName})"
         }
     }
+
+    // Timer (cache for buildDesiredState)
+    if (reported.containsKey("timer")) {
+        state.lastTimer = reported.timer
+    }
+
+    // Presets (only present in full shadow/get response, skip if unchanged)
+    if (reported.containsKey("presets")) {
+        def presetKeys = reported.presets.keySet().sort().toString()
+        if (presetKeys != state.lastPresetKeys) {
+            parsePresets(reported.presets)
+            state.lastPresetKeys = presetKeys
+        }
+    }
+
+    // Programs (only present in full shadow/get response, skip if unchanged)
+    if (reported.containsKey("programs")) {
+        def programSig = reported.programs.collect { k, v -> "${k}:${v.n}" }.sort().toString()
+        if (programSig != state.lastProgramSig) {
+            parsePrograms(reported.programs)
+            state.lastProgramSig = programSig
+        }
+    }
+}
+
+// ==================== Presets & Programs ====================
+
+def parsePresets(presets) {
+    if (!presets) return
+
+    def parsed = [:]
+    presets.each { key, value ->
+        parsed[key] = [
+            index: key as int,
+            audio: value.a,
+            color: value.c,
+            flags: value.f
+        ]
+    }
+    state.presets = parsed
+    logInfo "Loaded ${parsed.size()} presets"
+    logDebug "Presets: ${parsed.keySet()}"
+}
+
+def parsePrograms(programs) {
+    if (!programs) return
+
+    def parsed = [:]
+    programs.each { key, value ->
+        parsed[key] = [
+            index: key as int,
+            name: value.n ?: "Program ${key}",
+            audio: value.a,
+            color: value.c,
+            dayMask: value.D,
+            timeSeconds: value.U,
+            enabled: value.P
+        ]
+    }
+    state.programs = parsed
+    def names = parsed.collect { k, v -> "${v.name} (#${k})" }.join(", ")
+    logInfo "Loaded ${parsed.size()} programs: ${names}"
+}
+
+def playPreset(presetNumber) {
+    def num = presetNumber as int
+    if (num < 1 || num > 10) {
+        logWarn "Invalid preset number: ${num}. Must be 1-10."
+        return
+    }
+
+    logInfo "Activating preset ${num}"
+    updateShadow([activePresetIndex: num, activeProgramIndex: 0, isPowered: true])
+}
+
+def playFavorite(favoriteName) {
+    if (!favoriteName) {
+        logWarn "No favorite name specified"
+        logInfo "Available programs: ${state.programs?.collect { k, v -> v.name }}"
+        logInfo "Available presets: 1-${state.presets?.size() ?: 0}"
+        return
+    }
+
+    // Check if it's "Preset N" format
+    def presetMatch = (favoriteName =~ /(?i)preset\s*(\d+)/)
+    if (presetMatch.find()) {
+        playPreset(presetMatch.group(1) as int)
+        return
+    }
+
+    // Try to match program name (case-insensitive)
+    def program = state.programs?.find { k, v ->
+        v.name?.equalsIgnoreCase(favoriteName)
+    }
+    if (program) {
+        def progIdx = program.value.index
+        logInfo "Activating program '${program.value.name}' (#${progIdx})"
+        updateShadow([activeProgramIndex: progIdx, activePresetIndex: 0, isPowered: true])
+        return
+    }
+
+    // Try as raw number (treat as preset)
+    if (favoriteName.isInteger()) {
+        playPreset(favoriteName as int)
+        return
+    }
+
+    logWarn "Favorite not found: ${favoriteName}"
+    logInfo "Available programs: ${state.programs?.collect { k, v -> v.name }}"
+    logInfo "Available presets: 1-${state.presets?.size() ?: 0}"
 }
 
 // ==================== Power Commands ====================
@@ -336,21 +487,8 @@ def setLevel(level, duration = null) {
 
     def intensity = Math.round(level * IOT_MAX / 100.0)
 
-    // Get current color or use default
-    def currentHue = device.currentValue("hue") ?: 30
-    def currentSat = device.currentValue("saturation") ?: 100
-    def rgb = hsvToRgb(currentHue, currentSat, 100)
-
-    // Only update light settings, don't change power state
-    // This allows audio to continue playing even with light off
-    updateShadow([
-        c: [
-            r: rgb.red,
-            g: rgb.green,
-            b: rgb.blue,
-            i: intensity
-        ]
-    ])
+    // Only send intensity - AWS IoT deep merges, preserving existing RGB color
+    updateShadow([c: [i: intensity]])
 }
 
 def setColor(colorMap) {
@@ -363,13 +501,14 @@ def setColor(colorMap) {
     def rgb = hsvToRgb(hue, sat, 100)
     def intensity = Math.round(level * IOT_MAX / 100.0)
 
+    // Scale RGB from 0-255 to 0-65535 (device uses 16-bit color values)
+    def iotR = Math.round(rgb.red * IOT_MAX / 255.0)
+    def iotG = Math.round(rgb.green * IOT_MAX / 255.0)
+    def iotB = Math.round(rgb.blue * IOT_MAX / 255.0)
+
+    // Send full color object + turn on; disable rainbow/white modes
     updateShadow([
-        c: [
-            r: rgb.red,
-            g: rgb.green,
-            b: rgb.blue,
-            i: intensity
-        ],
+        c: [r: iotR, g: iotG, b: iotB, i: intensity, R: false, W: false],
         isPowered: true
     ])
 }
@@ -403,22 +542,21 @@ def setVolume(volumeLevel) {
 
     def iotVolume = Math.round(volumeLevel * IOT_MAX / 100.0)
 
-    // Preserve current audio track when changing volume
-    def currentTrack = device.currentValue("audioTrackNumber") ?: 0
-    updateShadow([a: [v: iotVolume, t: currentTrack]])
+    // AWS IoT deep merges, so only send volume - track stays unchanged
+    updateShadow([a: [v: iotVolume]])
 
     // Update mute attribute
     sendEvent(name: "mute", value: volumeLevel == 0 ? "muted" : "unmuted")
 }
 
 def volumeUp() {
-    def current = device.currentValue("volume") ?: 50
+    def current = (device.currentValue("volume") ?: 50) as int
     def newLevel = Math.min(current + 10, 100)
     setVolume(newLevel)
 }
 
 def volumeDown() {
-    def current = device.currentValue("volume") ?: 50
+    def current = (device.currentValue("volume") ?: 50) as int
     def newLevel = Math.max(current - 10, 0)
     setVolume(newLevel)
 }
@@ -440,15 +578,13 @@ def unmute() {
 def setAudioTrack(trackNumber) {
     logInfo "Setting audio track to ${trackNumber}"
 
-    if (trackNumber < 0 || trackNumber > 11) {
-        logWarn "Invalid track number: ${trackNumber}. Must be 0-11."
+    if (!AUDIO_TRACKS.containsKey(trackNumber)) {
+        logWarn "Invalid track number: ${trackNumber}. Valid: ${AUDIO_TRACKS.keySet()}"
         return
     }
 
-    // Preserve current volume when changing track
-    def currentVolume = device.currentValue("volume") ?: 50
-    def iotVolume = Math.round(currentVolume * IOT_MAX / 100.0)
-    updateShadow([a: [t: trackNumber, v: iotVolume]])
+    // AWS IoT deep merges, so only send track - volume stays unchanged
+    updateShadow([a: [t: trackNumber]])
 }
 
 def setAudioTrackByName(trackName) {
@@ -466,93 +602,6 @@ def setAudioTrackByName(trackName) {
 def stopAudio() {
     logInfo "Stopping audio"
     setAudioTrack(0)
-}
-
-// ==================== Favorites ====================
-
-def fetchFavorites() {
-    logDebug "Fetching favorites"
-
-    def macAddress = device.getDataValue("macAddress")
-    if (!macAddress) {
-        logWarn "No MAC address configured"
-        return
-    }
-
-    def favorites = parent.getFavorites(macAddress)
-    if (favorites) {
-        // Store full favorite data including settings
-        state.favorites = favorites.collect { fav ->
-            def favData = [
-                id: fav.id,
-                name: fav.name ?: "Favorite ${fav.id}"
-            ]
-            // Store the device settings if available
-            if (fav.steps && fav.steps.size() > 0) {
-                // Routines have steps, use the first step's settings
-                def step = fav.steps[0]
-                if (step.a) favData.audio = step.a
-                if (step.c) favData.color = step.c
-                if (step.containsKey("isPowered")) favData.isPowered = step.isPowered
-            } else {
-                // Direct favorite format
-                if (fav.a) favData.audio = fav.a
-                if (fav.c) favData.color = fav.c
-                if (fav.containsKey("isPowered")) favData.isPowered = fav.isPowered
-            }
-            return favData
-        }
-        logInfo "Loaded ${state.favorites.size()} favorites/routines"
-        logDebug "Favorites: ${state.favorites}"
-
-        // Update command constraint
-        updateFavoritesList()
-    }
-}
-
-def updateFavoritesList() {
-    // Hubitat doesn't support dynamic command constraints, so favorites are stored in state
-    logDebug "Favorites available: ${state.favorites?.collect { it.name }}"
-}
-
-def playFavorite(favoriteName) {
-    logInfo "Playing favorite: ${favoriteName}"
-
-    if (favoriteName == "Refresh list...") {
-        fetchFavorites()
-        return
-    }
-
-    def favorite = state.favorites?.find { it.name == favoriteName }
-    if (!favorite) {
-        logWarn "Favorite not found: ${favoriteName}"
-        logInfo "Available favorites: ${state.favorites?.collect { it.name }}"
-        return
-    }
-
-    logDebug "Applying favorite: ${favorite}"
-
-    // Build shadow update from favorite settings
-    def shadowUpdate = [:]
-
-    if (favorite.containsKey("isPowered")) {
-        shadowUpdate.isPowered = favorite.isPowered
-    }
-
-    if (favorite.audio) {
-        shadowUpdate.a = favorite.audio
-    }
-
-    if (favorite.color) {
-        shadowUpdate.c = favorite.color
-    }
-
-    if (shadowUpdate) {
-        updateShadow(shadowUpdate)
-        logInfo "Applied favorite: ${favorite.name}"
-    } else {
-        logWarn "Favorite has no settings to apply: ${favorite.name}"
-    }
 }
 
 // ==================== Shadow Update ====================
@@ -595,6 +644,15 @@ def sendPendingUpdate() {
 }
 
 // ==================== Color Conversion ====================
+
+def hexToRgb(String hex) {
+    hex = hex.replaceFirst("#", "")
+    return [
+        red: Integer.parseInt(hex.substring(0, 2), 16),
+        green: Integer.parseInt(hex.substring(2, 4), 16),
+        blue: Integer.parseInt(hex.substring(4, 6), 16)
+    ]
+}
 
 def rgbToHsv(r, g, b) {
     def rNorm = r / 255.0
@@ -763,6 +821,20 @@ def disconnectMqtt() {
     sendEvent(name: "mqttStatus", value: "disconnected")
 }
 
+def reconnectMqtt() {
+    logInfo "Reconnecting MQTT with fresh presigned URL"
+    try {
+        unschedule("mqttPing")
+        interfaces.webSocket.close()
+    } catch (e) {
+        logDebug "Error closing WebSocket during reconnect: ${e.message}"
+    }
+    sendEvent(name: "mqttStatus", value: "disconnected")
+
+    // Small delay to allow WebSocket to close cleanly, then reconnect
+    runIn(1, "connectMqtt")
+}
+
 def mqttPing() {
     if (device.currentValue("mqttStatus") != "connected") {
         logDebug "MQTT not connected, skipping ping"
@@ -770,7 +842,17 @@ def mqttPing() {
         return
     }
 
+    // Check if we got a PINGRESP since last ping
+    def lastPing = state.lastPingSent ?: 0
+    def lastPingResp = state.lastPingResponse ?: 0
+    if (lastPing > 0 && lastPingResp < lastPing) {
+        logWarn "No PINGRESP received since last ping, connection likely dead"
+        reconnectMqtt()
+        return
+    }
+
     logDebug "Sending MQTT PINGREQ"
+    state.lastPingSent = now()
     def packet = [(byte)MQTT_PINGREQ, (byte)0]
     sendMqttPacket(packet as byte[])
 }
@@ -830,6 +912,7 @@ def parseMqttPacket(byte[] bytes) {
             handlePuback(bytes)
             break
         case MQTT_PINGRESP:
+            state.lastPingResponse = now()
             logDebug "Received PINGRESP"
             break
         default:
@@ -897,7 +980,12 @@ def handleConnack(byte[] bytes) {
             sendEvent(name: "mqttStatus", value: "connected")
             sendEvent(name: "connectionStatus", value: "online")
 
-            // Schedule MQTT keep-alive pings (every 4 minutes, keep-alive is 5 min)
+            // Track connection time for proactive reconnect
+            state.mqttConnectedAt = now()
+            state.lastPingSent = 0
+            state.lastPingResponse = 0
+
+            // Schedule MQTT keep-alive pings (every 1 minute, keep-alive is 5 min)
             runEvery1Minute("mqttPing")
 
             // Subscribe to shadow topics
@@ -970,6 +1058,20 @@ def requestShadow() {
 
     def topic = "\$aws/things/${thingName}/shadow/get"
     mqttPublish(topic, "", 0)
+
+    // Track shadow request for timeout detection
+    state.shadowGetPending = now()
+    runIn(10, "checkShadowResponse")
+}
+
+def checkShadowResponse() {
+    def pending = state.shadowGetPending
+    if (pending && pending > 0) {
+        def elapsed = (now() - pending) / 1000
+        logWarn "No shadow/get response after ${Math.round(elapsed)}s, connection likely dead"
+        state.shadowGetPending = 0
+        reconnectMqtt()
+    }
 }
 
 def mqttPublish(String topic, String payload, int qos) {
@@ -1029,8 +1131,7 @@ def handlePublish(byte[] bytes) {
     def payloadBytes = bytes[idx..-1]
     def payload = new String(payloadBytes as byte[], "UTF-8")
 
-    logDebug "MQTT message on ${topic}"
-    logTrace "Payload: ${payload}"
+    logDebug "MQTT message on ${topic} (${payload.length()} bytes)"
 
     // Process shadow message
     processShadowMessage(topic, payload)
@@ -1046,8 +1147,25 @@ def processShadowMessage(String topic, String payload) {
     try {
         def json = new JsonSlurper().parseText(payload)
 
-        if (topic.endsWith("/shadow/get/accepted") || topic.endsWith("/shadow/update/accepted")) {
-            // Full shadow state
+        if (topic.endsWith("/shadow/get/accepted")) {
+            // Clear shadow/get timeout
+            def wasPending = state.shadowGetPending > 0
+            state.shadowGetPending = 0
+            // Full shadow state from get request
+            // Skip if unsolicited (from another client) and we processed recently
+            if (!wasPending) {
+                def lastProcessed = state.lastShadowProcessed ?: 0
+                if (now() - lastProcessed < 30000) {
+                    logDebug "Skipping unsolicited shadow/get response (processed ${(now() - lastProcessed) / 1000}s ago)"
+                    return
+                }
+            }
+            if (json.state?.reported) {
+                state.lastShadowProcessed = now()
+                processDeviceState([state: json.state])
+            }
+        } else if (topic.endsWith("/shadow/update/accepted")) {
+            // Shadow update confirmation
             if (json.state?.reported) {
                 processDeviceState([state: json.state])
             }

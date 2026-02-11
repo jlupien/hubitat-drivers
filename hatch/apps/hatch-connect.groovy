@@ -26,7 +26,7 @@ import javax.crypto.spec.SecretKeySpec
 import java.security.MessageDigest
 import java.net.URLEncoder
 
-@Field static final String VERSION = "1.1.1"
+@Field static final String VERSION = "1.2.0"
 @Field static final String HATCH_API_URL = "https://prod-sleep.hatchbaby.com"
 @Field static final String DRIVER_NAME = "Hatch Rest+"
 @Field static final String DRIVER_NAMESPACE = "jlupien"
@@ -791,83 +791,6 @@ def sendMqttUpdate(String thingName, Map desiredState) {
     logInfo "Shadow update queued for ${thingName}: ${desiredState}"
 
     return true
-}
-
-// ==================== Favorites & Routines ====================
-
-def getFavorites(String macAddress) {
-    logDebug "getFavorites(${macAddress})"
-
-    refreshTokensIfNeeded()
-
-    // Try the routine endpoint which contains favorites
-    def params = [
-        uri: "${HATCH_API_URL}/service/app/routine/v2/fetch",
-        query: [macAddress: macAddress],
-        contentType: "application/json",
-        headers: [
-            "X-HatchBaby-Auth": state.hatchAuthToken,
-            "User-Agent": "hatch_rest_api"
-        ],
-        timeout: 30
-    ]
-
-    try {
-        def result = []
-        httpGet(params) { resp ->
-            logDebug "Favorites response: ${resp.data}"
-            if (resp.status == 200 && resp.data?.payload) {
-                result = resp.data.payload
-                logDebug "Favorites: ${result}"
-            }
-        }
-        return result
-    } catch (e) {
-        // 404 is expected if no favorites exist
-        if (e.message?.contains("404")) {
-            logDebug "No favorites found for device"
-        } else {
-            logWarn "getFavorites error: ${e.message}"
-        }
-        return []
-    }
-}
-
-def getRoutines(String macAddress) {
-    logDebug "getRoutines(${macAddress})"
-
-    refreshTokensIfNeeded()
-
-    def params = [
-        uri: "${HATCH_API_URL}/service/app/routine/v2/fetch",
-        query: [macAddress: macAddress],
-        contentType: "application/json",
-        headers: [
-            "X-HatchBaby-Auth": state.hatchAuthToken,
-            "User-Agent": "hatch_rest_api"
-        ],
-        timeout: 30
-    ]
-
-    try {
-        def result = []
-        httpGet(params) { resp ->
-            logDebug "Routines response: ${resp.data}"
-            if (resp.status == 200 && resp.data?.payload) {
-                result = resp.data.payload
-                logDebug "Routines: ${result}"
-            }
-        }
-        return result
-    } catch (e) {
-        // 404 is expected if no routines exist
-        if (e.message?.contains("404")) {
-            logDebug "No routines found for device"
-        } else {
-            logWarn "getRoutines error: ${e.message}"
-        }
-        return []
-    }
 }
 
 // ==================== Child Device Support ====================
