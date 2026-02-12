@@ -1013,7 +1013,9 @@ def processVehicleData(Map data) {
         sendEvent(name: "serviceMode", value: data.serviceMode.value)
     }
     if (data.carWashMode?.value != null) {
-        sendEvent(name: "carWashMode", value: data.carWashMode.value)
+        // Normalize "disable" to "off" for consistency
+        def carWashValue = data.carWashMode.value == "disable" ? "off" : data.carWashMode.value
+        sendEvent(name: "carWashMode", value: carWashValue)
     }
     if (data.trailerStatus?.value != null) {
         sendEvent(name: "trailerStatus", value: data.trailerStatus.value)
