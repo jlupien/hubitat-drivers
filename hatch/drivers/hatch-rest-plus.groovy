@@ -108,8 +108,7 @@ metadata {
         attribute "lightOn", "string"           // on, off (light state separate from overall power)
 
         // Custom Commands
-        command "setAudioTrack", [[name:"track", type:"NUMBER", description:"Track number (0=None, 2=Stream, 3=PinkNoise, 4=Dryer, 5=Ocean, 6=Wind, 7=Rain, 9=Bird, 10=Crickets, 11=Brahms, 13=Twinkle, 14=RockABye)"]]
-        command "setAudioTrackByName", [[name:"name", type:"ENUM", constraints:getAudioTrackList()]]
+        command "setAudioTrack", [[name:"track", type:"ENUM", constraints:getAudioTrackList(), description:"Audio track name"]]
         command "playPreset", [[name:"preset", type:"NUMBER", description:"Preset number (1-10)"]]
         command "playFavorite", [[name:"favorite", type:"STRING", description:"Program name or 'Preset N'"]]
         command "stopAudio"
@@ -136,6 +135,8 @@ metadata {
 def getAudioTrackList() {
     return AUDIO_TRACKS.values().toList()
 }
+
+
 
 // ==================== Lifecycle ====================
 
@@ -170,6 +171,12 @@ def initialize() {
         case "0":
             logInfo "Polling disabled"
             break
+    }
+
+    // Initialize attributes that must be non-null to avoid NaN in UI
+    if (device.currentValue("audioTrackNumber") == null) {
+        sendEvent(name: "audioTrackNumber", value: 0)
+        sendEvent(name: "audioTrack", value: "None")
     }
 
     // Initial poll
@@ -561,24 +568,31 @@ def volumeDown() {
 
 def mute() {
     logInfo "Muting audio"
-    state.preMuteVolume = device.currentValue("volume") ?: 50
-    sendEvent(name: "mute", value: "muted")
+    def current = (device.currentValue("volume") ?: 0) as int
+    if (current > 0) {
+        state.preMuteVolume = current
+    }
     setVolume(0)
 }
 
 def unmute() {
     logInfo "Unmuting audio"
-    def volume = state.preMuteVolume ?: 50
-    sendEvent(name: "mute", value: "unmuted")
+    def volume = state.preMuteVolume ?: 10
     setVolume(volume)
 }
 
-def setAudioTrack(trackNumber) {
-    def num = trackNumber as int
-    logInfo "Setting audio track to ${num}"
+def setAudioTrack(track) {
+    // Accept either a name ("Dryer") or a number (4)
+    def num
+    if (AUDIO_TRACK_NAMES.containsKey(track.toString())) {
+        num = AUDIO_TRACK_NAMES[track.toString()]
+    } else {
+        num = track as int
+    }
+    logInfo "Setting audio track to ${AUDIO_TRACKS[num] ?: num}"
 
     if (!AUDIO_TRACKS.containsKey(num)) {
-        logWarn "Invalid track number: ${num}. Valid: ${AUDIO_TRACKS.keySet()}"
+        logWarn "Invalid track: ${track}. Valid: ${AUDIO_TRACKS.values()}"
         return
     }
 
@@ -586,17 +600,6 @@ def setAudioTrack(trackNumber) {
     updateShadow([a: [t: num]])
 }
 
-def setAudioTrackByName(trackName) {
-    logInfo "Setting audio track to ${trackName}"
-
-    def trackNumber = AUDIO_TRACK_NAMES[trackName]
-    if (trackNumber == null) {
-        logWarn "Unknown track name: ${trackName}"
-        return
-    }
-
-    setAudioTrack(trackNumber)
-}
 
 def stopAudio() {
     logInfo "Stopping audio"
