@@ -496,19 +496,17 @@ def setColor(colorMap) {
 
     def hue = colorMap.hue != null ? colorMap.hue : (device.currentValue("hue") ?: 30)
     def sat = colorMap.saturation != null ? colorMap.saturation : (device.currentValue("saturation") ?: 100)
-    def level = colorMap.level != null ? colorMap.level : (device.currentValue("level") ?: 100)
 
     def rgb = hsvToRgb(hue, sat, 100)
-    def intensity = Math.round(level * IOT_MAX / 100.0)
 
     // Scale RGB from 0-255 to 0-65535 (device uses 16-bit color values)
     def iotR = Math.round(rgb.red * IOT_MAX / 255.0)
     def iotG = Math.round(rgb.green * IOT_MAX / 255.0)
     def iotB = Math.round(rgb.blue * IOT_MAX / 255.0)
 
-    // Send full color object + turn on; disable rainbow/white modes
+    // Send only RGB + mode flags; omit intensity so brightness is preserved (deep merge)
     updateShadow([
-        c: [r: iotR, g: iotG, b: iotB, i: intensity, R: false, W: false],
+        c: [r: iotR, g: iotG, b: iotB, R: false, W: false],
         isPowered: true
     ])
 }
@@ -576,15 +574,16 @@ def unmute() {
 }
 
 def setAudioTrack(trackNumber) {
-    logInfo "Setting audio track to ${trackNumber}"
+    def num = trackNumber as int
+    logInfo "Setting audio track to ${num}"
 
-    if (!AUDIO_TRACKS.containsKey(trackNumber)) {
-        logWarn "Invalid track number: ${trackNumber}. Valid: ${AUDIO_TRACKS.keySet()}"
+    if (!AUDIO_TRACKS.containsKey(num)) {
+        logWarn "Invalid track number: ${num}. Valid: ${AUDIO_TRACKS.keySet()}"
         return
     }
 
     // AWS IoT deep merges, so only send track - volume stays unchanged
-    updateShadow([a: [t: trackNumber]])
+    updateShadow([a: [t: num]])
 }
 
 def setAudioTrackByName(trackName) {
