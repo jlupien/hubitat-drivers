@@ -66,8 +66,7 @@ The Hatch Rest+ driver supports these Hubitat capabilities:
 
 ### Custom Commands
 
-- `setAudioTrack(number)` - Set audio track (0-11)
-- `setAudioTrackByName(name)` - Set audio by name (None, Stream, PinkNoise, etc.)
+- `setAudioTrack(name)` - Set audio by name (None, Stream, PinkNoise, Dryer, etc.)
 - `stopAudio()` - Stop audio playback
 - `lightOn()` / `lightOff()` - Control light separately from power
 - `playFavorite(name)` - Play a saved favorite
@@ -78,7 +77,7 @@ The Hatch Rest+ driver supports these Hubitat capabilities:
 | Attribute | Description |
 |-----------|-------------|
 | audioTrack | Current audio track name |
-| audioTrackNumber | Current audio track number (0-11) |
+| audioTrackNumber | Current audio track number |
 | playing | Audio playing status (on/off) |
 | connectionStatus | Device connection status (online/offline) |
 | mqttStatus | MQTT connection status (connected/disconnected) |
@@ -92,17 +91,17 @@ The Hatch Rest+ driver supports these Hubitat capabilities:
 | Number | Name |
 |--------|------|
 | 0 | None |
-| 1 | Stream |
-| 2 | PinkNoise |
-| 3 | Dryer |
-| 4 | Ocean |
-| 5 | Wind |
-| 6 | Rain |
-| 7 | Bird |
-| 8 | Crickets |
-| 9 | Brahms |
-| 10 | Twinkle |
-| 11 | RockABye |
+| 2 | Stream |
+| 3 | PinkNoise |
+| 4 | Dryer |
+| 5 | Ocean |
+| 6 | Wind |
+| 7 | Rain |
+| 9 | Bird |
+| 10 | Crickets |
+| 11 | Brahms |
+| 13 | Twinkle |
+| 14 | RockABye |
 
 ## Example Automations
 
@@ -143,7 +142,7 @@ Actions:
 
 This integration uses:
 - Hatch REST API for authentication and device discovery
-- AWS IoT Device Shadow HTTP API for device control
+- AWS IoT MQTT over WebSocket for real-time device control
 - AWS SigV4 request signing for secure API calls
 
 Based on research from:
