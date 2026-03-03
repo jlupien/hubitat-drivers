@@ -1,12 +1,12 @@
 {
   "packageName": "Hatch Connect",
   "author": "Jeff Lupien",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-02-01",
+  "dateReleased": "2026-03-02",
   "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
   "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/hatch#readme",
-  "releaseNotes": "v1.2.0: Major reliability and command overhaul - proactive MQTT reconnect before presigned URL expires, PINGRESP dead connection detection, shadow/get timeout detection, commands now send full desired state matching Hatch app format, presets and programs parsed from device shadow, playPreset/playFavorite commands, RSSI attribute, removed unused REST API methods\n\nv1.1.1: Debug logging auto-disables after 30 minutes, reduced verbose logging, removed sensitive data from logs\n\nv1.1.0: Initial release with Rest+ support - light control (RGB, brightness), sound control (12 audio tracks, volume), MQTT over WebSocket, firmware/battery attributes",
+  "releaseNotes": "v1.3.0: Fixed audio track numbering to match actual device indices, fixed RGB color scaling (16-bit device values now properly converted to 8-bit), commands use AWS IoT deep merge to preserve unchanged settings, mute/unmute and volume fixes, shadow version tracking to filter stale out-of-order updates, removed unused REST API favorites/routines endpoints\n\nv1.2.0: Major reliability and command overhaul - proactive MQTT reconnect before presigned URL expires, PINGRESP dead connection detection, shadow/get timeout detection, commands now send full desired state matching Hatch app format, presets and programs parsed from device shadow, playPreset/playFavorite commands, RSSI attribute, removed unused REST API methods\n\nv1.1.1: Debug logging auto-disables after 30 minutes, reduced verbose logging, removed sensitive data from logs\n\nv1.1.0: Initial release with Rest+ support - light control (RGB, brightness), sound control (12 audio tracks, volume), MQTT over WebSocket, firmware/battery attributes",
   "apps": [
     {
       "id": "8f3a2b1c-5d4e-6f7a-8b9c-0d1e2f3a4b5c",
