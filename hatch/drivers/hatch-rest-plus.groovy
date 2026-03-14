@@ -23,7 +23,7 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 import hubitat.helper.HexUtils
 
-@Field static final String VERSION = "1.3.0"
+@Field static final String VERSION = "1.3.1"
 
 // MQTT Protocol Constants
 @Field static final int MQTT_CONNECT = 0x10
@@ -1124,15 +1124,21 @@ def processShadowMessage(String topic, String payload) {
                 }
             }
             if (json.state?.reported) {
-                state.lastShadowProcessed = now()
-                state.lastShadowVersion = json.version ?: 0
-                processDeviceState([state: json.state])
+                def version = json.version ?: 0
+                def lastVersion = state.lastShadowVersion ?: 0
+                if (version >= lastVersion) {
+                    state.lastShadowProcessed = now()
+                    state.lastShadowVersion = version
+                    processDeviceState([state: json.state])
+                } else {
+                    logDebug "Skipping stale shadow/get response (version ${version} < ${lastVersion})"
+                }
             }
         } else if (topic.endsWith("/shadow/update/accepted")) {
             // Shadow update confirmation - filter stale out-of-order messages by version
+            def version = json.version ?: 0
+            def lastVersion = state.lastShadowVersion ?: 0
             if (json.state?.reported) {
-                def version = json.version ?: 0
-                def lastVersion = state.lastShadowVersion ?: 0
                 if (version >= lastVersion) {
                     state.lastShadowVersion = version
                     processDeviceState([state: json.state])
