@@ -109,7 +109,6 @@ metadata {
 
         // Custom Commands
         command "setAudioTrack", [[name:"track", type:"ENUM", constraints:getAudioTrackList(), description:"Audio track name"]]
-        command "playPreset", [[name:"preset", type:"NUMBER", description:"Preset number (1-10)"]]
         command "playFavorite", [[name:"favorite", type:"ENUM", constraints:["1","2","3","4","5","6"], description:"Favorite number (1-6)"]]
         command "stopAudio"
         command "lightOn"
@@ -427,24 +426,14 @@ def parsePrograms(programs) {
     logInfo "Loaded ${parsed.size()} programs: ${names}"
 }
 
-def playPreset(presetNumber) {
-    def num = presetNumber as int
-    if (num < 1 || num > 10) {
-        logWarn "Invalid preset number: ${num}. Must be 1-10."
-        return
-    }
-
-    logInfo "Activating preset ${num}"
-    updateShadow([activePresetIndex: num, activeProgramIndex: 0, isPowered: true])
-}
-
 def playFavorite(favorite) {
     def num = favorite as int
     if (num < 1 || num > 6) {
         logWarn "Favorite must be 1-6, got: ${favorite}"
         return
     }
-    playPreset(num)
+    logInfo "Activating favorite ${num}"
+    updateShadow([activePresetIndex: num, activeProgramIndex: 0, isPowered: true])
 }
 
 // ==================== Power Commands ====================
