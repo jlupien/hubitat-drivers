@@ -110,7 +110,7 @@ metadata {
         // Custom Commands
         command "setAudioTrack", [[name:"track", type:"ENUM", constraints:getAudioTrackList(), description:"Audio track name"]]
         command "playPreset", [[name:"preset", type:"NUMBER", description:"Preset number (1-10)"]]
-        command "playFavorite", [[name:"favorite", type:"STRING", description:"Program name or 'Preset N'"]]
+        command "playFavorite", [[name:"favorite", type:"ENUM", constraints:["1","2","3","4","5","6"], description:"Favorite number (1-6)"]]
         command "stopAudio"
         command "lightOn"
         command "lightOff"
@@ -438,41 +438,13 @@ def playPreset(presetNumber) {
     updateShadow([activePresetIndex: num, activeProgramIndex: 0, isPowered: true])
 }
 
-def playFavorite(favoriteName) {
-    if (!favoriteName) {
-        logWarn "No favorite name specified"
-        logInfo "Available programs: ${state.programs?.collect { k, v -> v.name }}"
-        logInfo "Available presets: 1-${state.presets?.size() ?: 0}"
+def playFavorite(favorite) {
+    def num = favorite as int
+    if (num < 1 || num > 6) {
+        logWarn "Favorite must be 1-6, got: ${favorite}"
         return
     }
-
-    // Check if it's "Preset N" format
-    def presetMatch = (favoriteName =~ /(?i)preset\s*(\d+)/)
-    if (presetMatch.find()) {
-        playPreset(presetMatch.group(1) as int)
-        return
-    }
-
-    // Try to match program name (case-insensitive)
-    def program = state.programs?.find { k, v ->
-        v.name?.equalsIgnoreCase(favoriteName)
-    }
-    if (program) {
-        def progIdx = program.value.index
-        logInfo "Activating program '${program.value.name}' (#${progIdx})"
-        updateShadow([activeProgramIndex: progIdx, activePresetIndex: 0, isPowered: true])
-        return
-    }
-
-    // Try as raw number (treat as preset)
-    if (favoriteName.isInteger()) {
-        playPreset(favoriteName as int)
-        return
-    }
-
-    logWarn "Favorite not found: ${favoriteName}"
-    logInfo "Available programs: ${state.programs?.collect { k, v -> v.name }}"
-    logInfo "Available presets: 1-${state.presets?.size() ?: 0}"
+    playPreset(num)
 }
 
 // ==================== Power Commands ====================

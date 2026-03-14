@@ -69,7 +69,7 @@ The Hatch Rest+ driver supports these Hubitat capabilities:
 - `setAudioTrack(name)` - Set audio by name (None, Stream, PinkNoise, Dryer, etc.)
 - `stopAudio()` - Stop audio playback
 - `lightOn()` / `lightOff()` - Control light separately from power
-- `playFavorite(name)` - Play a saved favorite
+- `playFavorite(1-6)` - Play a saved favorite (1-6)
 - `connectMqtt()` / `disconnectMqtt()` - Manually manage MQTT connection
 
 ### Custom Attributes
