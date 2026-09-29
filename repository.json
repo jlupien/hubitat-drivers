@@ -15,6 +15,13 @@
       "tags": ["Hatch", "Rest", "Rest+", "Baby", "Nursery", "Sound Machine", "Night Light", "Sleep"],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/hatch/packageManifest.json",
       "description": "Control Hatch Rest+ devices - light, sound, and favorites"
+    },
+    {
+      "name": "PETLIBRO Granary Feeder",
+      "category": "Integrations",
+      "tags": ["PETLIBRO", "Pet", "Feeder", "Cat", "Dog", "Granary"],
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/granary-feeder/packageManifest.json",
+      "description": "Trigger PETLIBRO feeder manual feedings from Hubitat or Alexa"
     }
   ]
 }

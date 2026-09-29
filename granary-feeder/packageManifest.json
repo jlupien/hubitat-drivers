@@ -1,0 +1,19 @@
+{
+  "packageName": "PETLIBRO Granary Feeder",
+  "author": "Jeff Lupien",
+  "version": "1.0.0",
+  "minimumHEVersion": "2.3.0",
+  "dateReleased": "2026-09-28",
+  "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
+  "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/granary-feeder#readme",
+  "releaseNotes": "v1.0.0: Initial release - manual feeding via switch/push/feed command, feed cooldown, today's feeding totals, food level and online status",
+  "drivers": [
+    {
+      "id": "b7d1b383-c82f-4455-a5d0-d27bd7c410aa",
+      "name": "PETLIBRO Granary Feeder",
+      "namespace": "jlupien",
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/granary-feeder/drivers/petlibro-granary-feeder.groovy",
+      "required": true
+    }
+  ]
+}
