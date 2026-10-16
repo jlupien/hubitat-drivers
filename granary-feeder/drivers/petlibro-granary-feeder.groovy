@@ -10,7 +10,8 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  *
- *  Triggers manual feedings on PETLIBRO feeders (e.g. Granary Smart Camera Feeder PLAF203) via the PETLIBRO cloud API.
+ *  Triggers manual feedings on PETLIBRO feeders (e.g. Granary Smart Camera Feeder PLAF203, Granary 2 series) via the
+ *  PETLIBRO cloud API.
  *  Turning the switch on dispenses the configured number of portions (1 portion = 1/12 cup), then the switch
  *  turns itself back off - suitable for exposing to Alexa ("Alexa, turn on Cat Feeder").
  *
@@ -23,11 +24,14 @@ import groovy.json.JsonOutput
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.1.0"
 @Field static final String API_URL = "https://api.us.petlibro.com"
 @Field static final int APP_ID = 1
 @Field static final String APP_SN = "c35772530d1041699c87fe62348507a8"
 @Field static final String APP_VERSION = "1.3.45"
+
+// Feeding mode API values (Granary 2 series) <-> attribute values
+@Field static final Map FEEDING_MODES = ["FREE": "smartRefill", "PLAN": "scheduled"]
 
 // API response codes
 @Field static final int CODE_OK = 0
@@ -44,6 +48,7 @@ metadata {
         capability "Momentary"            // push() feeds
         capability "Refresh"              // refresh()
         capability "Initialize"           // initialize()
+        capability "Battery"              // Backup battery level (Granary 2)
         capability "Actuator"
         capability "Sensor"
 
@@ -53,6 +58,9 @@ metadata {
         attribute "foodLevel", "string"             // ok, low
         attribute "connectionStatus", "string"      // online, offline
         attribute "rssi", "number"                  // WiFi signal strength (dBm)
+        attribute "bowlFoodGrams", "number"         // Food currently in the bowl(s) (Granary 2 bowl scale)
+        attribute "feedablePortions", "number"      // Portions that still fit in the bowl (Granary 2, single bowl)
+        attribute "feedingMode", "string"           // smartRefill, scheduled (Granary 2)
         attribute "lastFeeding", "string"           // Timestamp of last manual feeding from Hubitat
         attribute "lastFeedingResult", "string"     // success, skipped (cooldown), error message
         attribute "deviceSn", "string"
@@ -60,6 +68,8 @@ metadata {
 
         command "feed", [[name: "portions", type: "NUMBER", description: "Portions to dispense (1 portion = 1/12 cup). Blank = default"]]
         command "discoverDevices"
+        command "setFeedingMode", [[name: "mode", type: "ENUM", constraints: ["smartRefill", "scheduled"],
+                                    description: "Granary 2: Smart Refill (auto-dispense when the bowl is low) or scheduled feeding plan"]]
     }
 
     preferences {
@@ -227,9 +237,50 @@ def refresh() {
         if (info.data.wifiRssi != null) {
             sendEvent(name: "rssi", value: info.data.wifiRssi as int)
         }
+        if (info.data.electricQuantity != null) {
+            sendEvent(name: "battery", value: info.data.electricQuantity as int, unit: "%")
+        }
+    }
+
+    // Bowl scale telemetry - only Granary 2 series feeders report these fields
+    def bowl = apiPost("/data/data/realInfo", [id: sn, deviceSn: sn])
+    if (bowl?.code == CODE_OK && bowl.data) {
+        def d = bowl.data
+        if (d.remainingGrain != null) {
+            sendEvent(name: "bowlFoodGrams", value: d.remainingGrain as int, unit: "g")
+        } else if (d.leftRemainingGrain != null || d.rightRemainingGrain != null) {
+            int total = ((d.leftRemainingGrain ?: 0) as int) + ((d.rightRemainingGrain ?: 0) as int)
+            sendEvent(name: "bowlFoodGrams", value: total, unit: "g")
+        }
+        if (d.maxFeedable != null) {
+            sendEvent(name: "feedablePortions", value: d.maxFeedable as int)
+        }
+        if (d.feedingMode) {
+            sendEvent(name: "feedingMode", value: FEEDING_MODES[d.feedingMode] ?: d.feedingMode.toString().toLowerCase())
+        }
     }
 
     sendEvent(name: "lastUpdate", value: new Date().format("yyyy-MM-dd HH:mm:ss", location.timeZone))
+}
+
+def setFeedingMode(String mode) {
+    String apiMode = FEEDING_MODES.find { it.value == mode }?.key
+    if (!apiMode) {
+        logWarn "Invalid feeding mode ${mode} (must be ${FEEDING_MODES.values().join(' or ')})"
+        return
+    }
+
+    String sn = getDeviceSn()
+    if (!sn) return
+
+    def resp = apiPost("/device/device/updateFeedingMode", [deviceSn: sn, mode: apiMode])
+    if (resp?.code == CODE_OK) {
+        logInfo "Feeding mode set to ${mode}"
+        sendEvent(name: "feedingMode", value: mode)
+        runIn(5, "refresh")
+    } else {
+        logError "Set feeding mode failed - ${resp ? "code ${resp.code}: ${resp.msg}" : "no response"}"
+    }
 }
 
 def discoverDevices() {
@@ -259,7 +310,11 @@ private String getDeviceSn() {
     }
 
     def devices = discoverDevices()
-    def feeder = devices.find { it.productName?.toLowerCase()?.contains("feeder") } ?: devices[0]
+    // Granary 2 series report productName without "feeder" (e.g. "Granary 2", "Granary 2 Vision")
+    def feeder = devices.find {
+        String name = it.productName?.toLowerCase() ?: ""
+        name.contains("feeder") || name.contains("granary")
+    } ?: devices[0]
     if (feeder?.deviceSn) {
         state.deviceSn = feeder.deviceSn
         sendEvent(name: "deviceSn", value: feeder.deviceSn)

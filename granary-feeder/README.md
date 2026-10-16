@@ -7,13 +7,16 @@ Trigger manual feedings on a PETLIBRO feeder from Hubitat — and by extension f
 - **Feed on demand**: Turning the switch on dispenses the configured portions (1 portion = 1/12 cup), then the switch turns itself back off
 - **Alexa friendly**: Exposes a standard Switch, so it works with the Amazon Echo Skill
 - **Cooldown**: Ignores repeat feed requests within a configurable window (default 60s) to prevent double feedings
-- **Status**: Today's feeding amount and count, food level (ok/low), online status, WiFi signal
+- **Status**: Today's feeding amount and count, food level (ok/low), online status, WiFi signal, battery
+- **Bowl scale** (Granary 2 series): food currently in the bowl and how many more portions fit
+- **Feeding mode** (Granary 2 series): see and switch between Smart Refill and scheduled feeding
 
 ## Supported Devices
 
 - Granary Smart Camera Feeder (PLAF203)
+- Granary 2 Vision (PLAF205)
 
-Other PETLIBRO feeders using the same cloud API (Granary Smart Feeder, Air, Space, One RFID) will probably work but are untested. US region only.
+The rest of the Granary 2 series (Granary 2, Vision Duo, X) and other PETLIBRO feeders using the same cloud API (Granary Smart Feeder, Air, Space, One RFID) will probably work but are untested. US region only.
 
 ## Before You Start: Use a Second Account
 
@@ -59,6 +62,7 @@ Logging in to the PETLIBRO API logs out any other session on the same account, i
 | `on()` | Feed the default portions, then turn the switch back off |
 | `push()` | Feed the default portions |
 | `feed(portions)` | Feed a specific number of portions (1–48) |
+| `setFeedingMode(mode)` | Granary 2 series: `smartRefill` (auto-dispense when the bowl is low) or `scheduled` (feeding plan) |
 | `refresh()` | Update feeding totals and status |
 | `discoverDevices()` | Log all devices on the PETLIBRO account |
 
@@ -73,6 +77,10 @@ Logging in to the PETLIBRO API logs out any other session on the same account, i
 | `foodLevel` | `ok` or `low` |
 | `connectionStatus` | `online` or `offline` |
 | `rssi` | WiFi signal strength (dBm) |
+| `battery` | Backup battery level (%) |
+| `bowlFoodGrams` | Food currently in the bowl, in grams (Granary 2 series; both bowls combined on dual-bowl models) |
+| `feedablePortions` | Portions that still fit in the bowl (Granary 2 series, single bowl) |
+| `feedingMode` | `smartRefill` or `scheduled` (Granary 2 series) |
 | `lastFeeding` | Time of the last feeding triggered from Hubitat |
 | `lastFeedingResult` | `success`, `skipped (cooldown)`, or an error message |
 

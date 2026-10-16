@@ -1,12 +1,12 @@
 {
   "packageName": "PETLIBRO Granary Feeder",
   "author": "Jeff Lupien",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-09-28",
+  "dateReleased": "2026-10-16",
   "licenseFile": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/LICENSE",
   "documentationLink": "https://github.com/jlupien/hubitat-drivers/tree/master/granary-feeder#readme",
-  "releaseNotes": "v1.0.0: Initial release - manual feeding via switch/push/feed command, feed cooldown, today's feeding totals, food level and online status",
+  "releaseNotes": "v1.1.0: Granary 2 support - auto-detect Granary 2 feeders, bowl food weight and feedable portions, battery level, feeding mode (Smart Refill / scheduled) status and control. v1.0.0: Initial release - manual feeding via switch/push/feed command, feed cooldown, today's feeding totals, food level and online status",
   "drivers": [
     {
       "id": "b7d1b383-c82f-4455-a5d0-d27bd7c410aa",
