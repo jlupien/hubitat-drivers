@@ -21,9 +21,10 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.1.3"
+@Field static final String VERSION = "1.1.4"
 @Field static final String WEBSOCKET_URL = "wss://api.rivian.com/gql-consumer-subscriptions/graphql"
 @Field static final Integer RECONNECT_DELAY_MAX = 3600 // 1 hour max
+@Field static final Integer STALE_CONNECTION_MINUTES = 10 // No messages (incl. keep-alives) for this long = dead connection
 
 // Drive mode mapping from API values to friendly names
 @Field static final Map DRIVE_MODE_MAP = [
@@ -185,6 +186,7 @@ metadata {
         command "refresh"
         command "connectWebSocket"
         command "disconnectWebSocket"
+        command "reconnectWebSocket"
 
         // Commands - Phase 2 (Control) - Commented out for Phase 1
         // command "wake"
@@ -311,6 +313,7 @@ def connectWebSocket() {
     // Cancel any pending reconnect attempts to prevent race conditions
     unschedule("connectWebSocket")
     state.reconnectPending = false
+    state.intentionalDisconnect = false
 
     if (!parent) {
         logError "No parent app found - cannot connect WebSocket"
@@ -327,6 +330,7 @@ def connectWebSocket() {
     }
 
     logDebug "Connecting to Rivian WebSocket at ${WEBSOCKET_URL}..."
+    state.lastConnectAttempt = now()
     sendEvent(name: "websocketStatus", value: "connecting")
 
     try {
@@ -376,13 +380,22 @@ def disconnectWebSocket() {
     sendEvent(name: "websocketStatus", value: "disconnected")
 }
 
+def reconnectWebSocket() {
+    logInfo "Reconnecting WebSocket"
+    disconnectWebSocket()
+    state.reconnectDelay = 1
+    runIn(2, "connectWebSocket")
+}
+
 def webSocketStatus(String status) {
     logDebug "WebSocket status callback received: ${status}"
 
     // Hubitat sends status like "status: open" or just "failure: reason"
     if (status.contains("open")) {
         logDebug "WebSocket connected successfully!"
-        state.reconnectDelay = 1
+        // Backoff is reset on connection_ack, not here - the server accepts the socket
+        // and then immediately closes it when the session is rejected
+        state.connectionAcked = false
         state.lastWebSocketConnect = now()
         state.lastWsMessage = now()
         sendEvent(name: "websocketStatus", value: "connected")
@@ -402,6 +415,9 @@ def webSocketStatus(String status) {
         def connectionDuration = connectTime ? Math.round((currentTime - connectTime) / 1000) : "unknown"
         def secsSinceLastMsg = lastMsgTime ? Math.round((currentTime - lastMsgTime) / 1000) : "unknown"
         logWarn "WebSocket closing - connection was open for ${connectionDuration}s, last message ${secsSinceLastMsg}s ago"
+        if (!state.connectionAcked && !state.intentionalDisconnect) {
+            logWarn "Server closed the connection before acknowledging it - the Rivian session may have expired. Try logging in again in the Rivian Connect app."
+        }
 
         sendEvent(name: "websocketStatus", value: "disconnected")
         if (state.intentionalDisconnect) {
@@ -659,6 +675,25 @@ def watchdog() {
     // We trust the WebSocket ping/pong (pingInterval: 120) to detect dead connections.
     // Hubitat will call webSocketStatus("failure") if the connection dies.
 
+    // Dead connection detection: we resubscribe every minute and the server sends
+    // keep-alives, so a "connected" socket with no messages at all is not really connected.
+    // This is independent of vehicle data, which can legitimately be stale while asleep.
+    if (settings.enableWebSocket != false && (wsStatus == "connected" || wsStatus == "connecting")) {
+        def lastActivity = Math.max(state.lastWsMessage ?: 0, state.lastConnectAttempt ?: 0)
+        def minutesSinceMsg = Math.round((currentTime - lastActivity) / 60000)
+        if (minutesSinceMsg >= STALE_CONNECTION_MINUTES) {
+            logWarn "WebSocket ${wsStatus} but no messages for ${minutesSinceMsg} minutes - forcing reconnect"
+            try {
+                interfaces.webSocket.close()
+            } catch (e) {
+                logDebug "Error closing stale WebSocket: ${e.message}"
+            }
+            sendEvent(name: "websocketStatus", value: "disconnected")
+            scheduleReconnect()
+            return
+        }
+    }
+
     // Backup reconnection: if status is disconnected but no reconnect is pending
     // This handles edge cases where scheduleReconnect didn't fire
     if (settings.enableWebSocket != false && wsStatus == "disconnected") {
@@ -686,6 +721,8 @@ def parse(String message) {
         switch(json.type) {
             case "connection_ack":
                 logDebug "WebSocket connection acknowledged - sending subscription"
+                state.connectionAcked = true
+                state.reconnectDelay = 1
                 // Send initial subscription
                 sendVehicleSubscription()
                 // Schedule periodic resubscription to keep connection alive

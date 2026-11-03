@@ -21,7 +21,7 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.1.3"
+@Field static final String VERSION = "1.1.4"
 @Field static final String RIVIAN_API_URL = "https://rivian.com/api/gql/gateway/graphql"
 @Field static final String DRIVER_NAME = "Rivian Vehicle"
 @Field static final String DRIVER_NAMESPACE = "jlupien"
@@ -131,6 +131,8 @@ def authProgressPage() {
     state.authInProgress = true
     state.loginError = null
     state.otpRequired = false
+    state.otpError = null
+    app.removeSetting("otpCode")
 
     // We need to do this synchronously for the page flow to work
     // First create CSRF token
@@ -161,6 +163,7 @@ def authProgressPage() {
 
         // Discover vehicles
         discoverVehicles()
+        reconnectVehicles()
 
         return dynamicPage(name: "authProgressPage", title: "Login Successful", nextPage: "mainPage") {
             section {
@@ -209,6 +212,7 @@ def otpPage() {
 
             // Discover vehicles
             discoverVehicles()
+            reconnectVehicles()
 
             return dynamicPage(name: "otpPage", title: "Verification Successful", nextPage: "mainPage") {
                 section {
@@ -539,14 +543,42 @@ def validateOtpSync(String email, String otp, String otpToken) {
 def refreshTokens() {
     logInfo "Refreshing authentication tokens"
 
-    createCsrfToken { success ->
-        if (success) {
-            state.lastTokenRefresh = now()
-            logInfo "Tokens refreshed successfully"
-        } else {
-            logError "Token refresh failed"
-        }
+    def csrfResult = createCsrfTokenSync()
+    if (!csrfResult.success) {
+        logError "Token refresh failed: ${csrfResult.error}"
+        return
     }
+
+    // The user session can't be refreshed - verify it's still valid so an expired
+    // session is surfaced instead of the WebSocket silently failing
+    def result = graphqlRequestSync("query GetCurrentUser { currentUser { id } }", [:], "GetCurrentUser", true)
+    if (result.unauthenticated) {
+        return
+    }
+    if (result.error) {
+        logError "Session check failed: ${result.error}"
+        return
+    }
+
+    state.lastTokenRefresh = now()
+    logInfo "Tokens refreshed successfully"
+
+    // Reconnect vehicles so they pick up the new CSRF/app session tokens
+    reconnectVehicles()
+}
+
+def reconnectVehicles() {
+    getChildDevices().each { device ->
+        logDebug "Reconnecting ${device.displayName}"
+        device.reconnectWebSocket()
+    }
+}
+
+def handleUnauthenticated() {
+    if (state.authenticated) {
+        logError "Rivian session has expired - open the Rivian Connect app and log in again"
+    }
+    state.authenticated = false
 }
 
 // ==================== Vehicle Discovery ====================
@@ -742,7 +774,11 @@ def graphqlRequestSync(String query, Map variables, String operationName, boolea
             if (responseData.errors) {
                 def errorMsg = responseData.errors[0]?.message ?: "GraphQL error"
                 logError "GraphQL error: ${errorMsg}"
-                return [error: errorMsg, response: responseData]
+                def unauthenticated = responseData.errors.any { it?.extensions?.code == "UNAUTHENTICATED" }
+                if (authenticated && unauthenticated) {
+                    handleUnauthenticated()
+                }
+                return [error: errorMsg, response: responseData, unauthenticated: unauthenticated]
             }
 
             return [error: null, response: responseData]
@@ -752,13 +788,18 @@ def graphqlRequestSync(String query, Map variables, String operationName, boolea
 
     } catch (groovyx.net.http.HttpResponseException e) {
         logError "HTTP exception: ${e.statusCode} - ${e.message}"
+        def unauthenticated = false
         try {
             def errorBody = e.response?.data
             logError "Error response body: ${errorBody}"
+            unauthenticated = errorBody?.errors?.any { it?.extensions?.code == "UNAUTHENTICATED" }
         } catch (ex) {
             logDebug "Could not read error body: ${ex.message}"
         }
-        return [error: "HTTP ${e.statusCode}: ${e.message}", response: null]
+        if (authenticated && unauthenticated) {
+            handleUnauthenticated()
+        }
+        return [error: "HTTP ${e.statusCode}: ${e.message}", response: null, unauthenticated: unauthenticated]
     } catch (e) {
         logError "Request exception: ${e.class.name} - ${e.message}"
         logError "Exception details: ${e}"
