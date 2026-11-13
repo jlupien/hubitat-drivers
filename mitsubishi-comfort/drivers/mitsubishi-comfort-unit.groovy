@@ -36,11 +36,14 @@
  *                                     when a setting changes). Now a plain
  *                                     90-second post-command suppression
  *                                     window; telemetry always applies.
+ *    2026-11-13  Jeff Lupien  1.0.3  cToF fallback rounds to a whole degree:
+ *                                     heating setpoints below the table
+ *                                     (10.5 C) showed 50.9 instead of 51.
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.2"
+@Field static final String VERSION = "1.0.3"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -583,7 +586,10 @@ private def cToF(def celsius) {
     if (C_TO_F.containsKey(key)) {
         return C_TO_F[key]
     }
-    return Math.round((celsius.toFloat() * 9.0 / 5.0 + 32.0) * 10) / 10.0
+    // Outside the table (heating setpoints below 59 F): the Comfort app
+    // shows whole degrees, so round to the nearest whole degree instead of
+    // a decimal - 10.5 C is 50.9 arithmetically, but the app calls it 51 F.
+    return Math.round(celsius.toFloat() * 9.0 / 5.0 + 32.0) as int
 }
 
 /**

@@ -32,12 +32,16 @@
  *    2026-11-13  Jeff Lupien  1.0.0  Initial release - login + token refresh,
  *                                     site/zone discovery, child creation,
  *                                     scheduled polling, send-command.
+ *    2026-11-13  Jeff Lupien  1.0.1  Log accepted commands at info level:
+ *                                     successful sends left no trace at the
+ *                                     default log level, so a live test
+ *                                     could not be corroborated from logs.
  */
 
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.0.1"
 @Field static final String BASE_URL = "https://app-prod.kumocloud.com"
 @Field static final String APP_VERSION = "3.2.4"
 // User-Agent captured from the Kumo Cloud iOS app (via ventz's doc).
@@ -261,6 +265,7 @@ def sendUnitCommand(String serial, Map commands) {
         return false
     }
     debugLog("sendUnitCommand: Command accepted for ${serial}: ${JsonOutput.toJson(result)}")
+    infoLog("sendUnitCommand: Command accepted for ${serial}: ${JsonOutput.toJson(commands)}")
     // The cloud cache lags a command by up to ~a minute; poll soon after so
     // the child picks up the new state without waiting for the next interval.
     runIn(60, "poll", [overwrite: true])
