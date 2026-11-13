@@ -5,30 +5,74 @@
     {
       "name": "Rivian Connect",
       "category": "Integrations",
-      "tags": ["Vehicle", "Car", "EV", "Presence", "Rivian", "R1S", "R1T"],
+      "tags": [
+        "Vehicle",
+        "Car",
+        "EV",
+        "Presence",
+        "Rivian",
+        "R1S",
+        "R1T"
+      ],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/rivian-connect/packageManifest.json",
       "description": "Real-time Rivian vehicle integration with 70+ attributes"
     },
     {
       "name": "Hatch Connect",
       "category": "Integrations",
-      "tags": ["Hatch", "Rest", "Rest+", "Baby", "Nursery", "Sound Machine", "Night Light", "Sleep"],
+      "tags": [
+        "Hatch",
+        "Rest",
+        "Rest+",
+        "Baby",
+        "Nursery",
+        "Sound Machine",
+        "Night Light",
+        "Sleep"
+      ],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/hatch/packageManifest.json",
       "description": "Control Hatch Rest+ devices - light, sound, and favorites"
     },
     {
       "name": "PETLIBRO Granary Feeder",
       "category": "Integrations",
-      "tags": ["PETLIBRO", "Pet", "Feeder", "Cat", "Dog", "Granary"],
+      "tags": [
+        "PETLIBRO",
+        "Pet",
+        "Feeder",
+        "Cat",
+        "Dog",
+        "Granary"
+      ],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/granary-feeder/packageManifest.json",
       "description": "Trigger PETLIBRO feeder manual feedings from Hubitat or Alexa"
     },
     {
       "name": "Mitsubishi Comfort",
       "category": "Integrations",
-      "tags": ["Mitsubishi", "Comfort", "Kumo Cloud", "Mini Split", "Thermostat", "HVAC"],
+      "tags": [
+        "Mitsubishi",
+        "Comfort",
+        "Kumo Cloud",
+        "Mini Split",
+        "Thermostat",
+        "HVAC"
+      ],
       "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/mitsubishi-comfort/packageManifest.json",
       "description": "Control Mitsubishi mini-splits through the Comfort app's Kumo Cloud v3 API"
+    },
+    {
+      "name": "Garage Heat Pump Controller",
+      "category": "Integrations",
+      "tags": [
+        "Garage",
+        "Heat Pump",
+        "Thermostat",
+        "HVAC",
+        "Mitsubishi"
+      ],
+      "location": "https://raw.githubusercontent.com/jlupien/hubitat-drivers/master/garage-heat-pump-controller/packageManifest.json",
+      "description": "Controls a garage heat pump from averaged temperature sensors with hysteresis and a garage-door interlock"
     }
   ]
 }
