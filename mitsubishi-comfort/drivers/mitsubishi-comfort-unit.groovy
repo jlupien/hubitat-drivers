@@ -29,11 +29,18 @@
  *                                     map keys and every setpoint silently
  *                                     fell back to arithmetic (cooling
  *                                     setpoint showed 67.1 instead of 67).
+ *    2026-11-13  Jeff Lupien  1.0.2  Replace the stale-status guard: the
+ *                                     lastStatusChangeAt comparison blocked
+ *                                     settings updates forever after any
+ *                                     command (that timestamp only moves
+ *                                     when a setting changes). Now a plain
+ *                                     90-second post-command suppression
+ *                                     window; telemetry always applies.
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.1"
+@Field static final String VERSION = "1.0.2"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -228,9 +235,9 @@ private def setLimit(String minAttr, String maxAttr, def minC, def maxC) {
 /**
  * Apply a status map from the parent (merged zone adapter + device info).
  * Telemetry (room temp, connected, humidity, RSSI) is always applied.
- * Settings (mode, setpoints, fan) are skipped when the cloud data predates
- * our last command - the server cache lags a command by up to ~a minute,
- * and applying stale settings would bounce the state we just set.
+ * Settings (mode, setpoints, fan) are skipped briefly after one of our own
+ * commands - the server cache lags a command by up to ~a minute, and
+ * applying its stale values would bounce the state we just set.
  */
 def applyStatusUpdates(Map statusInfo) {
     if (!statusInfo || statusInfo.unitId == null) {
@@ -255,8 +262,8 @@ def applyStatusUpdates(Map statusInfo) {
         sendEventIfChanged("hasMhk2", statusInfo.hasMhk2 ? "true" : "false")
     }
 
-    if (isStatusStale(statusInfo)) {
-        parent.debugLog("applyStatusUpdates: Status predates our last command, skipping mode/setpoint/fan updates")
+    if (isStatusStale()) {
+        parent.debugLog("applyStatusUpdates: Within the post-command suppression window, skipping mode/setpoint/fan updates")
         return
     }
 
@@ -299,20 +306,17 @@ def applyStatusUpdates(Map statusInfo) {
     sendEventIfChanged("thermostatOperatingState", deriveOperatingState(heMode))
 }
 
-private def isStatusStale(Map statusInfo) {
-    def lastCommand = device.currentValue("lastCommandUTC", true)
-    def statusAsAt = statusInfo.lastStatusChangeAt
-    if (lastCommand == null || statusAsAt == null) {
+private def isStatusStale() {
+    // Suppress settings updates for 90 seconds after one of our own
+    // commands, while the cloud cache catches up. A plain time window, not
+    // a timestamp comparison: v1.0.1 compared lastCommandUTC against the
+    // cloud's lastStatusChangeAt, but that timestamp only moves when a
+    // setting changes, so a no-op command (or a change the cloud stamps a
+    // moment before our command returns) blocked settings updates forever.
+    if (state.lastCommandTime == null) {
         return false
     }
-    try {
-        def commandDate = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS'Z'").parse(lastCommand)
-        def statusDate = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").parse(statusAsAt)
-        return commandDate > statusDate
-    } catch (Exception e) {
-        parent.debugLog("isStatusStale: Could not compare timestamps (${e}), treating status as current")
-        return false
-    }
+    return (now() - state.lastCommandTime) < 90000
 }
 
 private def updateThermostatSetpoint(String heMode) {
@@ -545,6 +549,7 @@ private def clampSetpoint(def givenTemp, String minAttr, String maxAttr, String 
 }
 
 private def recordCommand() {
+    state.lastCommandTime = now()
     def fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS'Z'")
     fmt.setTimeZone(TimeZone.getTimeZone("UTC"))
     sendEvent(name: "lastCommandUTC", value: fmt.format(new Date()))
