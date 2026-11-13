@@ -34,6 +34,9 @@
  *
  *  Change history:
  *    2026-11-13  Jeff Lupien  1.0.0  Initial release.
+ *    2026-11-13  Jeff Lupien  1.0.1  Rename evaluate() to evaluateConditions() - evaluate
+ *                                  collides with groovy.lang.Script.evaluate() and fails
+ *                                  to compile as a private method.
  */
 
 import groovy.transform.Field
@@ -49,7 +52,7 @@ definition(
     singleInstance: false
 )
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.0.1"
 
 preferences {
     page(name: "mainPage", title: "Garage Heat Pump Controller", install: true, uninstall: true) {
@@ -99,11 +102,11 @@ def initialize() {
     if (logDebug) {
         runIn(1800, "disableDebugLogging")
     }
-    evaluate("initialize")
+    evaluateConditions("initialize")
 }
 
 def tempHandler(evt) {
-    evaluate("temperature ${evt.device} ${evt.value}")
+    evaluateConditions("temperature ${evt.device} ${evt.value}")
 }
 
 def contactHandler(evt) {
@@ -113,7 +116,7 @@ def contactHandler(evt) {
     } else {
         debugLog("contactHandler: all doors closed - cancelling timer, re-evaluating")
         unschedule("doorTimerFired")
-        evaluate("doors closed")
+        evaluateConditions("doors closed")
     }
 }
 
@@ -137,41 +140,41 @@ private def anyDoorOpen() {
     return doorSensors?.any { it.currentValue("contact") == "open" } ?: false
 }
 
-private def evaluate(String reason) {
+private def evaluateConditions(String reason) {
     if (anyDoorOpen()) {
-        debugLog("evaluate (${reason}): door open, skipping temperature evaluation")
+        debugLog("evaluateConditions (${reason}): door open, skipping temperature evaluation")
         return
     }
     def temp = averageTemp()
     if (temp == null) {
-        debugLog("evaluate (${reason}): no temperature available, doing nothing")
+        debugLog("evaluateConditions (${reason}): no temperature available, doing nothing")
         return
     }
     def mode = thermostat.currentValue("thermostatMode")
-    debugLog("evaluate (${reason}): avg temp ${temp}°F, mode ${mode}")
+    debugLog("evaluateConditions (${reason}): avg temp ${temp}°F, mode ${mode}")
     if (mode == "heat") {
         if (temp > heatOffTemp) {
-            infoLog("evaluate: ${temp}°F above heat-off ${heatOffTemp}°F, turning off")
+            infoLog("evaluateConditions: ${temp}°F above heat-off ${heatOffTemp}°F, turning off")
             setMode("off")
         }
         return
     }
     if (mode == "cool") {
         if (temp < coolOffTemp) {
-            infoLog("evaluate: ${temp}°F below cool-off ${coolOffTemp}°F, turning off")
+            infoLog("evaluateConditions: ${temp}°F below cool-off ${coolOffTemp}°F, turning off")
             setMode("off")
         }
         return
     }
     // Off (or dry/fan/auto, which are treated like off - the app owns the mode).
     if (temp < heatOnTemp) {
-        infoLog("evaluate: ${temp}°F below heat-on ${heatOnTemp}°F, turning heat on at ${heatSetpoint}°F")
+        infoLog("evaluateConditions: ${temp}°F below heat-on ${heatOnTemp}°F, turning heat on at ${heatSetpoint}°F")
         setMode("heat")
     } else if (temp > coolOnTemp) {
-        infoLog("evaluate: ${temp}°F above cool-on ${coolOnTemp}°F, turning cool on at ${coolSetpoint}°F")
+        infoLog("evaluateConditions: ${temp}°F above cool-on ${coolOnTemp}°F, turning cool on at ${coolSetpoint}°F")
         setMode("cool")
     } else if (mode != "off") {
-        infoLog("evaluate: ${temp}°F in the dead band, turning ${mode} off")
+        infoLog("evaluateConditions: ${temp}°F in the dead band, turning ${mode} off")
         setMode("off")
     }
 }
