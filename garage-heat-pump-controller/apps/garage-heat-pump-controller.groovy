@@ -20,9 +20,9 @@
  *    ignored and the heat pump temperature is used alone. The heat pump
  *    needs no staleness check: the app is event-driven, so a silent heat
  *    pump simply produces no evaluations and nothing changes.
- *  - Hysteresis: from off, heat turns on below `heatOnTemp` (55) and cool
- *    above `coolOnTemp` (77). From heat, the unit turns off above
- *    `heatOffTemp` (57); from cool, below `coolOffTemp` (75). The unit never
+ *  - Hysteresis: from off, heat turns on below `heatOnTemp` (54) and cool
+ *    above `coolOnTemp` (78). From heat, the unit turns off above
+ *    `heatOffTemp` (56); from cool, below `coolOffTemp` (76). The unit never
  *    switches directly between heat and cool - it always passes through off.
  *  - Turning on sets the setpoint first (heat 50 / cool 80), then the mode.
  *  - If either garage door stays open for `doorOpenMinutes` (5), the unit
@@ -34,6 +34,8 @@
  *
  *  Change history:
  *    2026-11-13  Jeff Lupien  1.0.0  Initial release.
+ *    2026-11-13  Jeff Lupien  1.0.2  Thresholds: heat on <54/off >56, cool on >78/off <76
+ *                                  (was 55/57/77/75) - wider dead band so the unit runs less.
  *    2026-11-13  Jeff Lupien  1.0.1  Rename evaluate() to evaluateConditions() - evaluate
  *                                  collides with groovy.lang.Script.evaluate() and fails
  *                                  to compile as a private method.
@@ -52,7 +54,7 @@ definition(
     singleInstance: false
 )
 
-@Field static final String VERSION = "1.0.1"
+@Field static final String VERSION = "1.0.2"
 
 preferences {
     page(name: "mainPage", title: "Garage Heat Pump Controller", install: true, uninstall: true) {
@@ -62,10 +64,10 @@ preferences {
             input "doorSensors", "capability.contactSensor", title: "Garage door contact sensors", required: true, multiple: true
         }
         section("Temperature thresholds (°F)") {
-            input "heatOnTemp", "number", title: "Turn heat ON below", defaultValue: 55, required: true
-            input "heatOffTemp", "number", title: "Turn heat OFF above", defaultValue: 57, required: true
-            input "coolOnTemp", "number", title: "Turn cool ON above", defaultValue: 77, required: true
-            input "coolOffTemp", "number", title: "Turn cool OFF below", defaultValue: 75, required: true
+            input "heatOnTemp", "number", title: "Turn heat ON below", defaultValue: 54, required: true
+            input "heatOffTemp", "number", title: "Turn heat OFF above", defaultValue: 56, required: true
+            input "coolOnTemp", "number", title: "Turn cool ON above", defaultValue: 78, required: true
+            input "coolOffTemp", "number", title: "Turn cool OFF below", defaultValue: 76, required: true
         }
         section("Setpoints (°F)") {
             input "heatSetpoint", "number", title: "Heating setpoint", defaultValue: 50, required: true

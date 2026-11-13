@@ -13,8 +13,8 @@ the garage mini-split.
   the heat pump temperature is used alone. The heat pump needs no staleness
   check: the app is event-driven, so a silent heat pump simply produces no
   evaluations and nothing changes.
-- **Hysteresis:** from off, heat turns on below 55°F and cool above 77°F.
-  From heat, the unit turns off above 57°F; from cool, below 75°F. The unit
+- **Hysteresis:** from off, heat turns on below 54°F and cool above 78°F.
+  From heat, the unit turns off above 56°F; from cool, below 76°F. The unit
   never switches directly between heat and cool — it always passes through
   off.
 - **Turning on sets the setpoint first** (heat 50°F / cool 80°F), then the
