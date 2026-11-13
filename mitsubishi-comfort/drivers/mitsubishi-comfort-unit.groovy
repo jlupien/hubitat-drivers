@@ -39,11 +39,14 @@
  *    2026-11-13  Jeff Lupien  1.0.3  cToF fallback rounds to a whole degree:
  *                                     heating setpoints below the table
  *                                     (10.5 C) showed 50.9 instead of 51.
+ *    2026-11-13  Jeff Lupien  1.0.4  Send units with temperature (°F) and
+ *                                     humidity (%) events: dashboard tiles
+ *                                     showed a bare number with no unit.
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.3"
+@Field static final String VERSION = "1.0.4"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -250,10 +253,10 @@ def applyStatusUpdates(Map statusInfo) {
 
     // Telemetry first - always current enough to show
     if (statusInfo.roomTemp != null) {
-        sendEventIfChanged("temperature", cToFRoom(statusInfo.roomTemp))
+        sendEventIfChanged("temperature", cToFRoom(statusInfo.roomTemp), "°F")
     }
     if (statusInfo.humidity != null) {
-        sendEventIfChanged("humidity", statusInfo.humidity)
+        sendEventIfChanged("humidity", statusInfo.humidity, "%")
     }
     if (statusInfo.connected != null) {
         sendEventIfChanged("connected", statusInfo.connected ? "true" : "false")
@@ -366,12 +369,16 @@ private def deriveOperatingState(String heMode) {
     return "idle"
 }
 
-private def sendEventIfChanged(String name, def value) {
+private def sendEventIfChanged(String name, def value, String unit = null) {
     if (value == null) {
         return
     }
     if (device.currentValue(name, true) != value) {
-        sendEvent(name: name, value: value)
+        if (unit != null) {
+            sendEvent(name: name, value: value, unit: unit)
+        } else {
+            sendEvent(name: name, value: value)
+        }
     }
 }
 
