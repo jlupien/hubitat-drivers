@@ -23,11 +23,17 @@
  *
  *  Change history:
  *    2026-11-13  Jeff Lupien  1.0.0  Initial release.
+ *    2026-11-13  Jeff Lupien  1.0.1  Fix temperature table lookups: cast
+ *                                     Math.round() results to int, otherwise
+ *                                     the Long keys never match the Integer
+ *                                     map keys and every setpoint silently
+ *                                     fell back to arithmetic (cooling
+ *                                     setpoint showed 67.1 instead of 67).
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.0"
+@Field static final String VERSION = "1.0.1"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -552,7 +558,7 @@ private def recordCommand() {
  * 0.5 C, which is the unit's internal step.
  */
 private def fToC(def fahrenheit) {
-    def fInt = Math.round(fahrenheit.toFloat())
+    def fInt = Math.round(fahrenheit.toFloat()) as int
     if (F_TO_C.containsKey(fInt)) {
         return F_TO_C[fInt]
     }
@@ -565,7 +571,10 @@ private def fToC(def fahrenheit) {
  * table (keyed by C * 2); values outside it fall back to standard rounding.
  */
 private def cToF(def celsius) {
-    def key = Math.round(celsius.toFloat() * 2.0)
+    // NOTE: Math.round(double) returns a long, and a Long key never matches
+    // the Integer keys of C_TO_F - cast to int or the table is silently
+    // bypassed and every setpoint falls back to arithmetic.
+    def key = Math.round(celsius.toFloat() * 2.0) as int
     if (C_TO_F.containsKey(key)) {
         return C_TO_F[key]
     }
