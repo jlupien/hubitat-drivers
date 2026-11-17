@@ -37,7 +37,11 @@
  *    return contract to the child stays intact.
  *  - The key fetch uses ASYNC asynchttpGet/Post: it is a multi-step
  *    sequence with long-poll waits (up to ~25 s), too long to block a
- *    driver method. Its state machine lives in atomicState.sio.
+ *    driver method. Its state machine lives in state.sio. NOTE: drivers
+ *    have no atomicState (that is app-only) - the 1.1.0 port used
+ *    atomicState.sio and the fetch state never survived past the
+ *    fetchLocalKeys execution, so the async callback and watchdog
+ *    silently no-opped (2026-11-17 live test).
  *  - Drivers have no dynamic preference pages, so LAN IPs come from one
  *    text preference (comma-separated serial=IP pairs) and/or the
  *    setUnitLanIp command. No subnet scan, no offline-only mode: discovery
@@ -80,6 +84,16 @@
  *                                     connectionPath on each child, per-zone
  *                                     LAN IP preference + commands. Cloud
  *                                     behavior unchanged.
+ *    2026-11-17  Jeff Lupien  1.1.1  Fix key fetch: the Socket.IO state
+ *                                     machine used atomicState.sio, which
+ *                                     does not exist in drivers (app-only),
+ *                                     so the fetch stalled silently after
+ *                                     "Connecting..." - the async callback
+ *                                     and watchdog never saw an active
+ *                                     fetch. Now state.sio. Also log when
+ *                                     the callback/watchdog fire with no
+ *                                     active fetch, instead of returning
+ *                                     silently.
  */
 
 import groovy.json.JsonOutput
@@ -87,7 +101,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String VERSION = "1.1.0"
+@Field static final String VERSION = "1.1.1"
 @Field static final String BASE_URL = "https://app-prod.kumocloud.com"
 @Field static final String SOCKET_BASE = "https://socket-prod.kumocloud.com"
 @Field static final String LEGACY_API_BASE = "https://geo-c.kumocloud.com"
@@ -859,12 +873,12 @@ def fetchLocalKeys() {
 }
 
 private def sioState() {
-    def s = atomicState.sio
+    def s = state.sio
     return (s instanceof Map) ? ([:] + (s as Map)) : [:]
 }
 
 private def sioStateSet(Map sio) {
-    atomicState.sio = sio
+    state.sio = sio
 }
 
 private def sioFetchRunning() {
@@ -1081,7 +1095,10 @@ private def socketIoHasHttpError(response) {
 // invokes asynchttp callbacks by method name.
 def socketIoAsyncCallback(response, data) {
     def sio = sioState()
-    if (sio.active != true) return
+    if (sio.active != true) {
+        infoLog("socketIoAsyncCallback: Socket.IO callback arrived with no active fetch; ignoring")
+        return
+    }
     def step = (data?.step ?: sio.step) as String
     def callbackSid = data?.sid?.toString()
     if (step != "open" && callbackSid && sio.sid && callbackSid != sio.sid.toString()) {
@@ -1342,7 +1359,10 @@ private def socketIoEvent(List args) {
 // deadline, so a stalled session cannot run forever. Must stay public.
 def socketIoWatchdog() {
     def sio = sioState()
-    if (sio.active != true) return
+    if (sio.active != true) {
+        infoLog("socketIoWatchdog: No active fetch; watchdog standing down")
+        return
+    }
     if (socketIoNeedRemaining().isEmpty()) {
         finishSocketIo("complete")
         return
