@@ -12,15 +12,57 @@ to go — so here it is.
 
 ## How it works
 
-Cloud-only, REST polling. The parent driver logs in with your Comfort
+Hybrid cloud + local. The parent driver logs in with your Comfort
 email/password (JWT, access token ~20 min, refresh token ~30 days),
 discovers your sites and zones, creates one child thermostat device per zone,
-and polls status on a schedule (default 5 minutes). Commands go out via
-`POST /v3/devices/send-command`.
+and polls status on a schedule (default 5 minutes). Discovery always uses
+the cloud. Status polls and commands use the **local LAN** when a unit has
+a cached device key and a LAN IP (see below), and fall back to the cloud
+(`POST /v3/devices/send-command`) otherwise — or after local failures (3
+failed polls, or 1 failed command, degrades local for 5 minutes, then it
+retries). Each child shows which path the last update used in its
+`connectionPath` attribute (`local` / `cloud`).
 
-There is no Socket.IO push channel — Hubitat can't easily hold one — so state
-can lag the cloud cache by up to about a minute after a command. The parent
-polls 60 seconds after every command to pick the new state up promptly.
+There is no Socket.IO push channel for live state — the driver polls — so
+cloud state can lag by up to about a minute after a command. The parent
+polls 60 seconds after a cloud command (5 seconds after a local one) to
+pick the new state up promptly.
+
+## Local control (LAN)
+
+Each unit's Wi-Fi adapter accepts authenticated HTTP PUTs on port 80 (the
+same protocol pykumo and Home Assistant's `mitsubishi_comfort` use). Local
+control needs two things per unit, and cloud control works without either:
+
+1. **A device key** — fetched from Comfort Cloud, never typed. On the
+   parent device, click **Fetch local device keys**. The driver tries the
+   legacy v2 login, then a short Socket.IO session asking the cloud for the
+   adapter password + cryptoSerial. The `localKeyStatus` attribute on the
+   parent reports the outcome: `cached` (keys stored), `fetching`,
+   `not published by cloud`, `timeout`, or `error`.
+2. **A LAN IP** — the adapter's address on your network. Set it in the
+   parent's Preferences as `serial=IP` (comma-separated for multiple
+   units, e.g. `ABCD1234567890EF=192.168.1.44`), or with the
+   **setUnitLanIp** command. The serial is the child's `unitId` attribute.
+   A DHCP reservation on your router keeps the IP stable.
+
+To find the adapter's IP: check your router's DHCP client list for the
+adapter (look for a Mitsubishi / MELCO / "Kumo" device, or match the MAC
+shown in the Comfort app's unit details), or look in the Comfort app under
+the unit's network settings. There is no subnet scan in this driver.
+
+**Heads-up: Mitsubishi stopped publishing local device keys** for US
+Comfort-native accounts around August/September 2026 (pykumo #78,
+hass-kumo #233). If the fetch reports `not published by cloud`, local
+control is impossible for that account no matter what the driver does —
+the cloud simply does not hand the keys out anymore. Cloud control is
+unaffected. Keys cached from before the change keep working, so if you
+ever get a `cached` result, do not clear it. Re-run the fetch
+occasionally; if Mitsubishi resumes publishing keys, the next fetch will
+pick them up.
+
+To turn local control off (cloud only), set **Prefer local LAN control**
+to off in Preferences.
 
 ## Setup
 
@@ -45,6 +87,7 @@ device to the new one, use Settings → Swap Apps Device.
 Standard Thermostat capability: mode (`off`, `heat`, `cool`, `dry`, `fan`,
 `auto`), heating/cooling setpoints, fan mode, temperature, operating state.
 Plus `humidity`, `connected`, `rssi`, `airDirection`, `hasMhk2`,
+`connectionPath` (`local` / `cloud`),
 per-mode setpoint limits from the unit's profile (`MinTempHeat` etc.), and a
 `setAirDirection` command.
 
@@ -89,3 +132,9 @@ to one decimal.
   full v3 API documentation and Python reference client
 - [dkmcgowan/ha-comfort](https://github.com/dkmcgowan/ha-comfort) —
   Home Assistant v3 cloud integration (temp tables, command patterns)
+- [evdev/mitsubishi-comfort-hubitat](https://github.com/evdev/mitsubishi-comfort-hubitat) —
+  Hubitat app + drivers with hybrid local LAN control; source of the local
+  PUT protocol, SHA-256 token construction, and Socket.IO device-key fetch
+  ported into the parent driver
+- [dlarrick/hass-kumo](https://github.com/dlarrick/hass-kumo) / pykumo —
+  local adapter protocol reference (pykumo #78 tracks the key outage)

@@ -13,7 +13,10 @@
  *  Child thermostat device for one Mitsubishi indoor unit, created and fed by
  *  the Mitsubishi Comfort parent driver. Speaks the Comfort app's Kumo Cloud
  *  v3 API through the parent; this driver holds no credentials and makes no
- *  HTTP calls itself.
+ *  HTTP calls itself. The parent may reach the unit over the LAN instead of
+ *  the cloud (see the parent's local-control notes); this child does not
+ *  care which path a status update or command took, but it surfaces the
+ *  path in the connectionPath attribute (local / cloud).
  *
  *  Temperature conversion follows the Comfort app exactly, using the
  *  Fahrenheit/Celsius lookup tables from dkmcgowan/ha-comfort: Mitsubishi's
@@ -42,11 +45,17 @@
  *    2026-11-13  Jeff Lupien  1.0.4  Send units with temperature (°F) and
  *                                     humidity (%) events: dashboard tiles
  *                                     showed a bare number with no unit.
+ *    2026-11-17  Jeff Lupien  1.1.0  Surface the parent's connectionPath
+ *                                     (local / cloud) as an attribute. No
+ *                                     command changes: the parent routes
+ *                                     local-or-cloud internally, and this
+ *                                     child's sendUnitCommand calls are
+ *                                     unchanged.
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.0.4"
+@Field static final String VERSION = "1.1.0"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -123,6 +132,7 @@ metadata {
         attribute "connected", "string"  // true / false
         attribute "rssi", "number"
         attribute "hasMhk2", "string"  // true / false
+        attribute "connectionPath", "string"  // local / cloud - which path the parent used for the last status update
         attribute "lastRunningMode", "string"
         attribute "lastCommandUTC", "string"
 
@@ -266,6 +276,9 @@ def applyStatusUpdates(Map statusInfo) {
     }
     if (statusInfo.hasMhk2 != null) {
         sendEventIfChanged("hasMhk2", statusInfo.hasMhk2 ? "true" : "false")
+    }
+    if (statusInfo.connectionPath != null) {
+        sendEventIfChanged("connectionPath", statusInfo.connectionPath)
     }
 
     if (isStatusStale()) {
