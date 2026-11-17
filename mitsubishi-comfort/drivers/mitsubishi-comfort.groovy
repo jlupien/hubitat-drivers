@@ -94,6 +94,16 @@
  *                                     the callback/watchdog fire with no
  *                                     active fetch, instead of returning
  *                                     silently.
+ *    2026-11-17  Jeff Lupien  1.1.2  Pass defrost / standby / filterDirty
+ *                                     through to the child (evdev reads
+ *                                     the same fields). Cloud path needs
+ *                                     no change: the merged adapter +
+ *                                     device map already carries them when
+ *                                     the cloud sends them, and the child
+ *                                     now reads them. Local path copies
+ *                                     them from the adapter status payload
+ *                                     (evdev:2520-2522) for when keys
+ *                                     exist.
  */
 
 import groovy.json.JsonOutput
@@ -101,7 +111,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String VERSION = "1.1.1"
+@Field static final String VERSION = "1.1.2"
 @Field static final String BASE_URL = "https://app-prod.kumocloud.com"
 @Field static final String SOCKET_BASE = "https://socket-prod.kumocloud.com"
 @Field static final String LEGACY_API_BASE = "https://geo-c.kumocloud.com"
@@ -689,6 +699,9 @@ private def localPollStatus(String serial) {
     status.roomTemp = raw.roomTemp
     status.connected = true
     if (raw.humidity != null) status.humidity = raw.humidity
+    if (raw.filterDirty != null) status.filterDirty = raw.filterDirty
+    if (raw.defrost != null) status.defrost = raw.defrost
+    if (raw.standby != null) status.standby = raw.standby
     return status
 }
 

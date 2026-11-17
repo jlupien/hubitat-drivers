@@ -87,7 +87,8 @@ device to the new one, use Settings → Swap Apps Device.
 Standard Thermostat capability: mode (`off`, `heat`, `cool`, `dry`, `fan`,
 `auto`), heating/cooling setpoints, fan mode, temperature, operating state.
 Plus `humidity`, `connected`, `rssi`, `airDirection`, `hasMhk2`,
-`connectionPath` (`local` / `cloud`),
+`connectionPath` (`local` / `cloud`), `defrost`, `standby`, and
+`filterDirty` (each `true` / `false`, only when the unit reports them),
 per-mode setpoint limits from the unit's profile (`MinTempHeat` etc.), and a
 `setAirDirection` command.
 

@@ -51,11 +51,25 @@
  *                                     local-or-cloud internally, and this
  *                                     child's sendUnitCommand calls are
  *                                     unchanged.
+ *    2026-11-17  Jeff Lupien  1.1.2  New telemetry attributes, from the
+ *                                     cloud device record the parent
+ *                                     already fetches (evdev reads the
+ *                                     same fields): defrost, standby,
+ *                                     filterDirty. Each falls back to the
+ *                                     displayConfig object when the top
+ *                                     level omits it (filter uses
+ *                                     displayConfig.filter). Attributes
+ *                                     stay unset when the unit reports
+ *                                     nothing; filter reminder metadata
+ *                                     (last reminder, interval) needs a
+ *                                     separate notification-preferences
+ *                                     call and is deliberately not
+ *                                     included.
  */
 
 import groovy.transform.Field
 
-@Field static final String VERSION = "1.1.0"
+@Field static final String VERSION = "1.1.2"
 
 // Fahrenheit -> Celsius setpoint mapping (61 to 80 F), from ha-comfort.
 // Values outside the table fall back to standard rounding to the nearest 0.5 C.
@@ -133,6 +147,9 @@ metadata {
         attribute "rssi", "number"
         attribute "hasMhk2", "string"  // true / false
         attribute "connectionPath", "string"  // local / cloud - which path the parent used for the last status update
+        attribute "defrost", "string"  // true / false - unit is in a defrost cycle (heat mode, cold weather)
+        attribute "standby", "string"  // true / false - unit is in standby
+        attribute "filterDirty", "string"  // true / false - filter needs cleaning
         attribute "lastRunningMode", "string"
         attribute "lastCommandUTC", "string"
 
@@ -279,6 +296,24 @@ def applyStatusUpdates(Map statusInfo) {
     }
     if (statusInfo.connectionPath != null) {
         sendEventIfChanged("connectionPath", statusInfo.connectionPath)
+    }
+    // Unit state flags, from the cloud device record (evdev reads the same
+    // fields). Each falls back to the displayConfig object when the top
+    // level omits it; the filter fallback field is named "filter", not
+    // "filterDirty". Telemetry, so applied before the stale gate below.
+    // Attributes stay unset when the unit reports nothing.
+    def displayConfig = (statusInfo.displayConfig instanceof Map) ? statusInfo.displayConfig : [:]
+    def defrost = statusInfo.defrost != null ? statusInfo.defrost : displayConfig.defrost
+    if (defrost != null) {
+        sendEventIfChanged("defrost", defrost ? "true" : "false")
+    }
+    def standby = statusInfo.standby != null ? statusInfo.standby : displayConfig.standby
+    if (standby != null) {
+        sendEventIfChanged("standby", standby ? "true" : "false")
+    }
+    def filterDirty = statusInfo.filterDirty != null ? statusInfo.filterDirty : displayConfig.filter
+    if (filterDirty != null) {
+        sendEventIfChanged("filterDirty", filterDirty ? "true" : "false")
     }
 
     if (isStatusStale()) {
